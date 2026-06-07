@@ -1,0 +1,6 @@
+name = "LTEL"
+version = "0.1.0"
+defaultTargets = ["LTEL"]
+
+[[lean_lib]]
+name = "LTEL"
