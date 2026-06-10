@@ -1,63 +1,88 @@
-import LTEL.Lasso
+import LTEL.RigidFragment
 import LTEL.NormalForm
 
 /-!
 # Tractability (Theorem T3)
 
-**T3**: For the rigid-concept sub-fragment, the LTEL box embedding construction
-runs in polynomial time in |T|.
+**T3**: For the rigid-concept sub-fragment, LTEL reasoning is PTIME.
 
-This mirrors EL⁺ PTIME classification (Baader et al., 2005).  The argument:
-  1. Normal form (L1): linear time.
-  2. Lasso length ≤ 2^|CN_rigid| + 1, polynomial for fixed |CN|.
-  3. Box assignment per lasso position: O(k × |T|) box operations.
+The correct argument (see `RigidFragment.lean`) is a **reduction to static EL⁺**,
+not an enumeration of lasso positions:
+
+  1. When all concept names are rigid, the temporal operators collapse
+     (`○A ≡ □A ≡ ◇A ≡ A`, `A 𝒰 B ≡ B`); proved as `RigidInterp.*_collapse`.
+  2. Hence a rigid TBox `T` has the same models as its temporal-operator-free
+     **static reduct** `T.staticReduct`, a pure EL⁺ TBox (`rigid_reduction`,
+     `staticReduct_is_el`).
+  3. Static EL⁺ satisfiability/subsumption is PTIME (Baader, Brandt & Lutz,
+     IJCAI 2005), and the box construction is one application of the base method.
+
+This supersedes the earlier `2^|CN|` lasso bound, which is **exponential** in
+`|T|` and therefore does *not* establish PTIME (cf. @writer's note of
+2026-06-09).  The complexity statement itself (PTIME) is inherited from EL⁺ and
+recorded as commentary — complexity classes are not formalised here — but the
+*reduction* it rests on is now machine-checked below.
 
 **T3 does NOT extend to non-rigid concepts** (see Q1 in Conjectures.lean):
-Borgwardt-Thost (IJCAI 2015) prove NEXPTIME-hardness, so a PTIME faithful
-embedding for the full fragment would contradict that result.
+Borgwardt–Thost (IJCAI 2015) prove NEXPTIME-hardness, so a PTIME faithful
+embedding for the full fragment would contradict that under PTIME ≠ NEXPTIME.
 -/
 
-/-! ## Rigid-concept sub-fragment -/
+/-! ## Rigid-fragment satisfiability -/
 
-/-- T is in the **rigid-concept sub-fragment** iff every concept name appearing
-    in T has a time-invariant extension (box(A, t) = box(A) for all t). -/
-def IsRigidFragment (T : TBox) : Prop := sorry
+/-- **Rigid-fragment satisfiability**: `T` has a model in which every concept
+    name is time-invariant (rigid).  This is the setting of the tractable
+    sub-fragment.  (Replaces the previous `sorry` placeholder `IsRigidFragment`,
+    which tried — incorrectly — to make rigidity a syntactic property of `T`;
+    rigidity is a restriction on the admitted interpretations.) -/
+def RigidSatisfiable (T : TBox) : Prop :=
+  ∃ (Δ : Type) (I : TemporalInterp Δ), RigidInterp I ∧ models I T
 
-/-! ## T3: PTIME for the rigid sub-fragment -/
+/-! ## T3: the rigid fragment reduces to static EL⁺ -/
 
-/-- Polynomial lasso bound for the rigid sub-fragment. -/
-theorem t3_lasso_polynomial (T : TBox) (_hRigid : IsRigidFragment T) :
-    ∃ (k : Nat), k ≤ 2 ^ T.length + 1 ∧
-      ∃ L : Lasso, L.prefixLen = k ∧
-        ∀ (Δ : Type) (I : TemporalInterp Δ), models I T → IsLassoPeriodic I L :=
-  sorry
+/-- The static reduct of a TBox is a **pure EL⁺ TBox**: every GCI has
+    temporal-operator-free sides, and role inclusions are unchanged. -/
+theorem staticReduct_is_el (T : TBox) :
+    ∀ ax ∈ T.staticReduct,
+      (∃ C D, ax = .gci C D ∧ TemporalFree C ∧ TemporalFree D) ∨
+      (∃ r s u, ax = .ri r s u) := by
+  intro ax hax
+  obtain ⟨ax₀, _, rfl⟩ := List.mem_map.mp hax
+  cases ax₀ with
+  | gci C D =>
+      exact Or.inl ⟨_, _, rfl, staticReduct_temporalFree C, staticReduct_temporalFree D⟩
+  | ri r s u => exact Or.inr ⟨r, s, u, rfl⟩
 
-/-- **Theorem T3** (PTIME construction, rigid sub-fragment).
+/-- **Theorem T3** (rigid-fragment reduction — the PTIME backbone).
 
-    The box embedding construction runs in time polynomial in |T| for the
-    rigid sub-fragment.  A cubic bound is conservative; the actual bound
-    follows from the EL⁺ classification complexity. -/
-theorem t3_tractability (T : TBox) (_hRigid : IsRigidFragment T) :
-    ∃ (poly : Nat → Nat), (∀ n, poly n ≤ n ^ 3 + 1) ∧ True :=
-  ⟨fun n => n ^ 3 + 1, fun _ => Nat.le_refl _, trivial⟩
+    Over any rigid interpretation, `T` and its static reduct have exactly the
+    same models.  Combined with `staticReduct_is_el` (the reduct is pure EL⁺),
+    rigid-fragment reasoning reduces to static EL⁺, which is PTIME
+    (Baader–Brandt–Lutz 2005). -/
+theorem t3_rigid_reduction {Δ : Type} {I : TemporalInterp Δ}
+    (h : RigidInterp I) (T : TBox) :
+    models I T ↔ models I T.staticReduct :=
+  rigid_reduction h T
+
+/-- Rigid-fragment satisfiability of `T` coincides with rigid satisfiability of
+    its pure-EL⁺ static reduct.  This is the formal content behind "the rigid
+    fragment reduces to static EL⁺". -/
+theorem rigidSatisfiable_iff_staticReduct (T : TBox) :
+    RigidSatisfiable T ↔
+    ∃ (Δ : Type) (I : TemporalInterp Δ), RigidInterp I ∧ models I T.staticReduct := by
+  constructor
+  · rintro ⟨Δ, I, hrig, hI⟩; exact ⟨Δ, I, hrig, (rigid_reduction hrig T).mp hI⟩
+  · rintro ⟨Δ, I, hrig, hI⟩; exact ⟨Δ, I, hrig, (rigid_reduction hrig T).mpr hI⟩
 
 /-! ## Why T3 does not extend to non-rigid concepts -/
 
 /-- NEXPTIME-hardness of non-rigid LTEL satisfiability
-    (Borgwardt & Thost, IJCAI 2015, Theorem 4.2).
-    Taken as an established axiom; the full reduction is in the literature. -/
-axiom borgwardt_thost_nexptime_hard :
-  ∃ T : TBox, satisfiable T  -- placeholder; the actual axiom is hardness
+    (Borgwardt & Thost, IJCAI 2015, Theorem 4.2).  Recorded as a literature
+    axiom; the reduction itself is not formalised here. -/
+axiom borgwardt_thost_nexptime_hard : True
 
-/-- A faithful PTIME construction would yield a PTIME satisfiability procedure.
-    Combined with NEXPTIME-hardness, this shows Q1 is false under PTIME ≠ NEXPTIME. -/
-theorem tractability_cannot_extend_to_nonrigid :
-    -- Under PTIME ≠ NEXPTIME (standard assumption), no PTIME faithful embedding
-    -- exists for the full non-rigid fragment.  The paper correctly restricts T3.
-    True :=
-  trivial
--- The argument: PTIME faithful embedding → PTIME satisfiability
---               (enumerate lasso embeddings, check zero-loss in poly time).
---             + NEXPTIME-hardness (borgwardt_thost_nexptime_hard)
---             ⟹ PTIME = NEXPTIME — contradiction.
--- Therefore T3 is restricted to the rigid sub-fragment.
+/-- A faithful PTIME construction for the full (non-rigid) fragment would yield a
+    PTIME satisfiability procedure, contradicting NEXPTIME-hardness under
+    PTIME ≠ NEXPTIME.  The paper therefore restricts T3 to the rigid fragment;
+    this is commentary (the complexity-class argument is not formalised). -/
+theorem tractability_cannot_extend_to_nonrigid : True := trivial

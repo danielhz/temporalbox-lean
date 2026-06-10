@@ -6,6 +6,7 @@ import LTEL.Semantics
 import LTEL.NormalForm
 import LTEL.UntilCompilation
 import LTEL.Lasso
+import LTEL.RigidFragment
 import LTEL.BoxEmbedding
 import LTEL.Soundness
 import LTEL.Faithfulness
