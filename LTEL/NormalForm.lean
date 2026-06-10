@@ -1,4 +1,5 @@
 import LTEL.Semantics
+import Mathlib.Order.MinMax
 
 /-!
 # Normal Form (Lemma L1)
@@ -15,9 +16,11 @@ Right-hand side admits {○, □}; left-hand side admits {○, 𝒰, ◇}.
 Right-side ◇/𝒰 are EXCLUDED (proved genuinely unsound in Conjectures.lean §Q3).
 -/
 
-/-- Concept is in right-hand normal form: only concept names, □A, ○A. -/
+/-- Concept is in right-hand normal form: a name, ∃r.A, ○A, or □A.
+    (The `some` case is NF-EL3 `A ⊑ ∃r.B`; it was missing in an earlier version.) -/
 inductive RhsNF : Concept → Prop where
   | name : RhsNF (.name A)
+  | some : RhsNF (.name A) → RhsNF (.some r (.name A))
   | next : RhsNF (.name A) → RhsNF (.next (.name A))
   | glob : RhsNF (.name A) → RhsNF (.globally (.name A))
 
@@ -329,6 +332,116 @@ theorem normalization_step_conservative (T : TBox) (a : ConceptName) (E : Concep
     rintro ⟨Δ, I, hI'⟩
     exact ⟨Δ, I, reduct Δ I hI'⟩
 
+/-! ## Fresh-name supply (fully proved)
+
+    Each step needs a name not occurring in the current TBox.  `freshName T` is
+    one more than the largest name in `T`, and is provably unmentioned. -/
+
+/-- The largest concept name occurring in `C` (0 if none). -/
+def Concept.maxName : Concept → Nat
+  | .top        => 0
+  | .name b     => b
+  | .meet C D   => max C.maxName D.maxName
+  | .some _ C   => C.maxName
+  | .next C     => C.maxName
+  | .luntil C D => max C.maxName D.maxName
+  | .globally C => C.maxName
+
+theorem mentions_le_maxName (a : ConceptName) :
+    ∀ (C : Concept), C.mentions a → a ≤ C.maxName := by
+  intro C
+  induction C with
+  | top => intro h; exact absurd h (by simp [Concept.mentions])
+  | name b => intro h; simp only [Concept.mentions] at h; subst h; simp [Concept.maxName]
+  | meet C D ihC ihD =>
+      intro h; simp only [Concept.mentions] at h; simp only [Concept.maxName]
+      rcases h with h | h
+      · exact le_trans (ihC h) (le_max_left _ _)
+      · exact le_trans (ihD h) (le_max_right _ _)
+  | some r C ihC => intro h; simp only [Concept.mentions] at h; exact ihC h
+  | next C ihC => intro h; simp only [Concept.mentions] at h; exact ihC h
+  | luntil C D ihC ihD =>
+      intro h; simp only [Concept.mentions] at h; simp only [Concept.maxName]
+      rcases h with h | h
+      · exact le_trans (ihC h) (le_max_left _ _)
+      · exact le_trans (ihD h) (le_max_right _ _)
+  | globally C ihC => intro h; simp only [Concept.mentions] at h; exact ihC h
+
+/-- The largest name occurring in an axiom. -/
+def Axiom.maxName : Axiom → Nat
+  | .gci C D  => max C.maxName D.maxName
+  | .ri _ _ _ => 0
+
+theorem axMentions_le_maxName (a : ConceptName) (ax : Axiom) :
+    AxMentions a ax → a ≤ ax.maxName := by
+  cases ax with
+  | gci C D =>
+      intro h
+      simp only [AxMentions] at h
+      simp only [Axiom.maxName]
+      rcases h with h | h
+      · exact le_trans (mentions_le_maxName a C h) (le_max_left _ _)
+      · exact le_trans (mentions_le_maxName a D h) (le_max_right _ _)
+  | ri r s u => intro h; exact absurd h (by simp [AxMentions])
+
+/-- The largest name occurring in a TBox. -/
+def TBox.maxName (T : TBox) : Nat := T.foldr (fun ax n => max ax.maxName n) 0
+
+theorem axMaxName_le_tboxMaxName (ax : Axiom) (T : TBox) :
+    ax ∈ T → ax.maxName ≤ T.maxName := by
+  induction T with
+  | nil => intro h; exact absurd h (by simp)
+  | cons b t ih =>
+      intro h
+      simp only [TBox.maxName, List.foldr_cons]
+      rcases List.mem_cons.mp h with h | h
+      · subst h; exact le_max_left _ _
+      · exact le_trans (ih h) (le_max_right _ _)
+
+/-- A name guaranteed not to occur in `T`. -/
+def freshName (T : TBox) : ConceptName := T.maxName + 1
+
+/-- `freshName T` is unmentioned by every axiom of `T`. -/
+theorem freshName_not_mentions (T : TBox) :
+    ∀ ax ∈ T, ¬ AxMentions (freshName T) ax := by
+  intro ax hax hm
+  have h1 : freshName T ≤ ax.maxName := axMentions_le_maxName _ ax hm
+  have h2 : ax.maxName ≤ T.maxName := axMaxName_le_tboxMaxName ax T hax
+  have : T.maxName + 1 ≤ T.maxName := le_trans h1 h2
+  exact Nat.not_succ_le_self _ this
+
+/-! ## Composing steps: the iteration glue (fully proved)
+
+    The well-founded iteration produces a chain `T = T₀ ⤳ T₁ ⤳ … ⤳ Tₙ` of
+    conservative steps ending in normal form.  The *composition* of that chain is
+    captured here: `Conservative` is reflexive and transitive, and each step is
+    `Conservative`.  So once the recursion produces the chain, its overall
+    correctness is immediate.  What remains for full L1 is the recursion that
+    *builds* the chain (a strictly decreasing complexity measure + fresh names);
+    see the L1 note. -/
+
+/-- A conservative extension: equisatisfiable, and every model of `T'` is a model
+    of `T`.  The invariant each step maintains and the iteration composes. -/
+def Conservative (T T' : TBox) : Prop :=
+  (satisfiable T ↔ satisfiable T') ∧
+  (∀ (Δ : Type) (I : TemporalInterp Δ), models I T' → models I T)
+
+theorem Conservative.refl (T : TBox) : Conservative T T :=
+  ⟨Iff.rfl, fun _ _ h => h⟩
+
+theorem Conservative.trans {T₁ T₂ T₃ : TBox}
+    (h₁ : Conservative T₁ T₂) (h₂ : Conservative T₂ T₃) : Conservative T₁ T₃ :=
+  ⟨h₁.1.trans h₂.1, fun Δ I h => h₁.2 Δ I (h₂.2 Δ I h)⟩
+
+/-- Each normalization step is conservative (repackages
+    `normalization_step_conservative`). -/
+theorem Conservative.step (T : TBox) (a : ConceptName) (E : Concept)
+    (hT : ∀ ax ∈ T, ¬ AxMentions a ax) (hE : ¬ E.mentions a) :
+    Conservative T
+      (T.map (Axiom.replace E a) ++ [Axiom.gci (.name a) E, Axiom.gci E (.name a)]) :=
+  ⟨(normalization_step_conservative T a E hT hE).1,
+   (normalization_step_conservative T a E hT hE).2⟩
+
 /-! ## L1: Normal form -/
 
 /-- **Lemma L1** (Normal form exists).
@@ -343,20 +456,29 @@ theorem normalization_step_conservative (T : TBox) (a : ConceptName) (E : Concep
     which is **false** once fresh names are introduced (a model of `T` need not
     interpret the fresh names as their definitions).
 
-    **Proved sorry-free (the per-step content):** `normalization_step_conservative`
-    — one step (replace a sub-concept `E` by a fresh name `a`, add `a ≡ E`) is a
-    conservative extension (equisatisfiable + reduct).  Built from the engine
-    (`definition_introduction_conservative`) and the replacement lemma
-    (`ext_replace_of_def`).
+    **Proved sorry-free — almost the whole iteration:**
+    * one step is conservative (`normalization_step_conservative`), from the
+      engine (`definition_introduction_conservative`) + replacement
+      (`ext_replace_of_def`);
+    * the steps **compose** — `Conservative` is reflexive and transitive
+      (`Conservative.refl`/`trans`) and each step is `Conservative.step`, so any
+      chain `T ⤳ … ⤳ T'` of steps is itself conservative;
+    * the **fresh-name supply** is solved — `freshName T` is provably unmentioned
+      (`freshName_not_mentions`).
 
-    **Remaining `sorry` (the iteration):** apply `normalization_step_conservative`
-    on a strictly decreasing concept-complexity measure (well-founded recursion),
-    with a fresh-name supply, until the NF shapes are reached, threading the
-    per-step conservativity transitively.  This also needs the **polarity
-    precondition** — `□` only on the right, `𝒰`/`◇` only on the left — since e.g.
-    `A ⊑ ◇B` has no faithful NF form (right-side `◇` is unsound to box; see Q3).
-    The current statement omits that precondition, so it is provable only for the
-    polarity-respecting fragment. -/
+    **The single remaining `sorry` — termination.**  All that is missing is the
+    well-founded recursion that *builds* the chain: a complexity measure that the
+    step strictly decreases (the naive size measure does **not** — a step adds
+    `a ⊑ E`, `E ⊑ a`, re-introducing `E`; the right measure counts operator
+    nodes *nested below another operator*, choosing an innermost complex `E` so
+    the two added axioms are already in NF), plus the proof that measure `0`
+    means NF.  Given that, strong induction on the measure + `Conservative.trans`
+    closes L1.
+
+    Also needs the **polarity precondition** — `□` only on the right, `𝒰`/`◇`
+    only on the left — since `A ⊑ ◇B` has no faithful NF form (right-side `◇` is
+    unsound to box; see Q3).  The current statement omits it, so L1 is provable
+    only for the polarity-respecting fragment. -/
 theorem l1_normal_form_exists (T : TBox) :
     ∃ T' : TBox,
       (∀ ax ∈ T', (∃ C D, ax = .gci C D ∧ LhsNF C ∧ RhsNF D) ∨
