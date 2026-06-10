@@ -29,17 +29,164 @@ inductive LhsNF : Concept → Prop where
   | next  : LhsNF (.name A) → LhsNF (.next (.name A))
   | luntil : LhsNF (.name A) → LhsNF (.name B) → LhsNF (.luntil (.name A) (.name B))
 
+/-! ## Conservative definition introduction (the normalization engine)
+
+Normalization flattens nested sub-concepts by naming them with **fresh** concept
+names.  The key correctness property is *conservativity*: introducing a fresh
+name `a` defined to abbreviate a concept `E` is satisfiability-preserving and
+reduct-sound.  This is the reusable engine each normalization step invokes.
+
+Note: this is also *why* the L1 statement below is equisatisfiability, **not** a
+per-interpretation biconditional `∀ I, models I T ↔ models I T'`.  The latter is
+false once fresh names appear: a model of `T` need not interpret the fresh names
+as their definitions (e.g. `T = {A ⊑ ∃r.(B⊓C)}` vs. its flattening with a fresh
+`X`; take `X := ∅`).  The honest invariant is a conservative extension. -/
+
+/-- `C.mentions a`: concept name `a` occurs in `C`. -/
+def Concept.mentions (a : ConceptName) : Concept → Prop
+  | .top        => False
+  | .name b     => b = a
+  | .meet C D   => Concept.mentions a C ∨ Concept.mentions a D
+  | .some _ C   => Concept.mentions a C
+  | .next C     => Concept.mentions a C
+  | .luntil C D => Concept.mentions a C ∨ Concept.mentions a D
+  | .globally C => Concept.mentions a C
+
+/-- Reinterpret the fresh name `a` to abbreviate concept `E` (evaluated in the
+    original `I`); all other names and the roles are unchanged. -/
+def defineInterp {Δ : Type} (I : TemporalInterp Δ) (a : ConceptName) (E : Concept) :
+    TemporalInterp Δ where
+  snapshot t :=
+    { concept := fun B d => if B = a then ext I E t d else (I.snapshot t).concept B d
+      role    := (I.snapshot t).role }
+  rigid_roles := fun r t₁ t₂ d e => I.rigid_roles r t₁ t₂ d e
+
+/-- **Substitution lemma**: on concepts not mentioning `a`, the redefinition is
+    invisible. -/
+theorem ext_defineInterp_not_mentions {Δ : Type} (I : TemporalInterp Δ)
+    (a : ConceptName) (E : Concept) :
+    ∀ (C : Concept), ¬ C.mentions a → ∀ (t : Nat) (d : Δ),
+      (ext (defineInterp I a E) C t d ↔ ext I C t d) := by
+  intro C
+  induction C with
+  | top => intro _ t d; exact Iff.rfl
+  | name b =>
+      intro hb t d
+      simp only [Concept.mentions] at hb
+      simp only [ext, defineInterp]
+      rw [if_neg hb]
+  | meet C D ihC ihD =>
+      intro h t d
+      have hC : ¬ C.mentions a := fun hh => h (Or.inl hh)
+      have hD : ¬ D.mentions a := fun hh => h (Or.inr hh)
+      simp only [ext]
+      exact and_congr (ihC hC t d) (ihD hD t d)
+  | some r C ihC =>
+      intro h t d
+      simp only [ext]
+      constructor
+      · rintro ⟨e, hr, hCe⟩; exact ⟨e, hr, (ihC h t e).mp hCe⟩
+      · rintro ⟨e, hr, hCe⟩; exact ⟨e, hr, (ihC h t e).mpr hCe⟩
+  | next C ihC =>
+      intro h t d
+      simp only [ext]
+      exact ihC h (t + 1) d
+  | luntil C D ihC ihD =>
+      intro h t d
+      have hC : ¬ C.mentions a := fun hh => h (Or.inl hh)
+      have hD : ¬ D.mentions a := fun hh => h (Or.inr hh)
+      simp only [ext]
+      constructor
+      · rintro ⟨t', ht', hDt, hCt⟩
+        exact ⟨t', ht', (ihD hD t' d).mp hDt,
+               fun t'' h1 h2 => (ihC hC t'' d).mp (hCt t'' h1 h2)⟩
+      · rintro ⟨t', ht', hDt, hCt⟩
+        exact ⟨t', ht', (ihD hD t' d).mpr hDt,
+               fun t'' h1 h2 => (ihC hC t'' d).mpr (hCt t'' h1 h2)⟩
+  | globally C ihC =>
+      intro h t d
+      simp only [ext]
+      constructor
+      · intro hall t' ht'; exact (ihC h t' d).mp (hall t' ht')
+      · intro hall t' ht'; exact (ihC h t' d).mpr (hall t' ht')
+
+/-- An axiom mentions `a` if `a` occurs in either side of a GCI. -/
+def AxMentions (a : ConceptName) : Axiom → Prop
+  | .gci C D  => C.mentions a ∨ D.mentions a
+  | .ri _ _ _ => False
+
+/-- On axioms not mentioning `a`, the redefinition is invisible. -/
+theorem satisfies_defineInterp_not_mentions {Δ : Type} (I : TemporalInterp Δ)
+    (a : ConceptName) (E : Concept) (ax : Axiom) (h : ¬ AxMentions a ax) :
+    satisfies (defineInterp I a E) ax ↔ satisfies I ax := by
+  cases ax with
+  | gci C D =>
+      have hC : ¬ C.mentions a := fun hh => h (Or.inl hh)
+      have hD : ¬ D.mentions a := fun hh => h (Or.inr hh)
+      constructor
+      · intro hsat t d hCd
+        exact (ext_defineInterp_not_mentions I a E D hD t d).mp
+                (hsat t d ((ext_defineInterp_not_mentions I a E C hC t d).mpr hCd))
+      · intro hsat t d hCd
+        exact (ext_defineInterp_not_mentions I a E D hD t d).mpr
+                (hsat t d ((ext_defineInterp_not_mentions I a E C hC t d).mp hCd))
+  | ri r s u => exact Iff.rfl
+
+/-- In the redefined interpretation, the fresh name `a` is equivalent to `E`
+    (provided `a` does not occur in `E`). -/
+theorem defineInterp_def_holds {Δ : Type} (I : TemporalInterp Δ)
+    (a : ConceptName) (E : Concept) (hE : ¬ E.mentions a) :
+    satisfies (defineInterp I a E) (.gci (.name a) E) ∧
+    satisfies (defineInterp I a E) (.gci E (.name a)) := by
+  have key : ∀ t d, (ext (defineInterp I a E) (.name a) t d ↔ ext (defineInterp I a E) E t d) := by
+    intro t d
+    rw [ext_defineInterp_not_mentions I a E E hE t d]
+    simp only [ext, defineInterp, if_pos]
+  exact ⟨fun t d h => (key t d).mp h, fun t d h => (key t d).mpr h⟩
+
+/-- **Conservative definition introduction.**  For a fresh name `a` (not in `T`
+    nor in `E`), adding the two axioms `a ⊑ E`, `E ⊑ a` (i.e. `a ≡ E`) is
+    satisfiability-preserving.  This is the engine each normalization step runs:
+    replace a complex sub-concept by a fresh defined name. -/
+theorem definition_introduction_conservative (T : TBox) (a : ConceptName) (E : Concept)
+    (hT : ∀ ax ∈ T, ¬ AxMentions a ax) (hE : ¬ E.mentions a) :
+    satisfiable T ↔ satisfiable (T ++ [Axiom.gci (.name a) E, Axiom.gci E (.name a)]) := by
+  constructor
+  · rintro ⟨Δ, I, hI⟩
+    refine ⟨Δ, defineInterp I a E, ?_⟩
+    intro ax hax
+    rcases List.mem_append.mp hax with hin | hin
+    · exact (satisfies_defineInterp_not_mentions I a E ax (hT ax hin)).mpr (hI ax hin)
+    · obtain ⟨hd1, hd2⟩ := defineInterp_def_holds I a E hE
+      simp only [List.mem_cons, List.not_mem_nil, or_false] at hin
+      rcases hin with rfl | rfl
+      · exact hd1
+      · exact hd2
+  · rintro ⟨Δ, I, hI⟩
+    exact ⟨Δ, I, fun ax hax => hI ax (List.mem_append.mpr (Or.inl hax))⟩
+
 /-! ## L1: Normal form -/
 
-/-- **Lemma L1** (Normal form exists, in polynomial time).
-    The proof introduces fresh concept names for sub-concepts and produces
-    a polynomial-size equivalent TBox.  Statement proved; the constructive
-    proof is marked sorry and will be completed for the journal version. -/
+/-- **Lemma L1** (Normal form exists).
+
+    Any LTEL TBox `T` normalizes to a TBox `T'` in the NF shapes via repeated
+    conservative definition introduction (`definition_introduction_conservative`)
+    plus the temporal unfoldings below.  The guarantee is a **conservative
+    extension**: `T'` is equisatisfiable with `T`, and every model of `T'` is a
+    model of `T` (the reduct direction).
+
+    The statement was corrected from an earlier `∀ I, models I T ↔ models I T'`,
+    which is **false** once fresh names are introduced (a model of `T` need not
+    interpret the fresh names as their definitions).  The engine
+    (`definition_introduction_conservative`) is proved sorry-free; the full
+    recursive algorithm (term-size induction, fresh-name supply, the subconcept
+    replacement step) is the remaining `sorry`. -/
 theorem l1_normal_form_exists (T : TBox) :
     ∃ T' : TBox,
       (∀ ax ∈ T', (∃ C D, ax = .gci C D ∧ LhsNF C ∧ RhsNF D) ∨
                    ∃ r s u, ax = .ri r s u) ∧
-      (∀ (Δ : Type) (I : TemporalInterp Δ), models I T ↔ models I T') :=
+      (satisfiable T ↔ satisfiable T') ∧
+      (∀ (Δ : Type) (I : TemporalInterp Δ), models I T' → models I T) :=
   sorry
 
 /-! ## Semantic fixed-point equations (fully proved) -/
