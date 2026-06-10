@@ -55,7 +55,7 @@ theorem t2_faithfulness (T : TBox) :
     interface), the temporal lifting is also faithful.  This justifies applying
     the construction to any provably faithful member of the box-embedding family. -/
 theorem faithfulness_transfers
-    (baseMethodFaithful :
+    (_baseMethodFaithful :
       ∀ T_static : TBox,
         satisfiable T_static ↔
         ∃ (B' Δ' : Type) (_ : BoxAlgebra B' Δ') (emb : TemporalBoxEmb B' Δ'),
@@ -69,7 +69,7 @@ theorem faithfulness_transfers
 /-- Specialisation to the BoxEL base method (Xiong et al., ISWC 2022),
     whose static faithfulness is an established theorem. -/
 theorem t2_boxel (T : TBox)
-    (boxelFaithful :
+    (_boxelFaithful :
       ∀ T_el : TBox,
         satisfiable T_el ↔
         ∃ (B' Δ' : Type) (_ : BoxAlgebra B' Δ') (emb : TemporalBoxEmb B' Δ'),

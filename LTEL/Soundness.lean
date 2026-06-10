@@ -56,7 +56,7 @@ theorem t1_next (emb : TemporalBoxEmb B Δ) (cA cB : ConceptName)
       ext emb.inducedInterp (.name cA) t d →
       ext emb.inducedInterp (.next (.name cB)) t d := by
   intro t d hA
-  simp only [ext.next_eq, ext, TemporalBoxEmb.inducedInterp] at hA ⊢
+  simp only [ext, TemporalBoxEmb.inducedInterp] at hA ⊢
   exact hle t d hA
 
 /-- T1 for NF-T3 (cA ⊑ □cB): greatest-fixpoint meet covers all t' ≥ t. -/
