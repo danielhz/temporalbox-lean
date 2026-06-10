@@ -165,6 +165,170 @@ theorem definition_introduction_conservative (T : TBox) (a : ConceptName) (E : C
   · rintro ⟨Δ, I, hI⟩
     exact ⟨Δ, I, fun ax hax => hI ax (List.mem_append.mpr (Or.inl hax))⟩
 
+/-! ## Replacement under a definition (the second half of a normalization step)
+
+    A normalization step (i) introduces a fresh name `a ≡ E` (conservative, above)
+    and (ii) *replaces* the complex sub-concept `E` by `a` inside the axioms.  The
+    replacement preserves extensions in any interpretation that already satisfies
+    `a ≡ E` — proved here.  Engine + replacement = one full normalization step is
+    model-preserving. -/
+
+/-- Replace every occurrence of the sub-concept `E` by the concept name `a`. -/
+def Concept.replace (C : Concept) (E : Concept) (a : ConceptName) : Concept :=
+  if C = E then .name a
+  else match C with
+    | .top          => .top
+    | .name b       => .name b
+    | .meet C₁ C₂   => .meet (C₁.replace E a) (C₂.replace E a)
+    | .some r C₁    => .some r (C₁.replace E a)
+    | .next C₁      => .next (C₁.replace E a)
+    | .luntil C₁ C₂ => .luntil (C₁.replace E a) (C₂.replace E a)
+    | .globally C₁  => .globally (C₁.replace E a)
+
+/-- **Replacement preserves extension** under a definition `a ≡ E`. -/
+theorem ext_replace_of_def {Δ : Type} (I : TemporalInterp Δ) (E : Concept) (a : ConceptName)
+    (hdef : ∀ t d, ext I (.name a) t d ↔ ext I E t d) :
+    ∀ (C : Concept) (t : Nat) (d : Δ),
+      (ext I (C.replace E a) t d ↔ ext I C t d) := by
+  intro C
+  induction C with
+  | top =>
+      intro t d
+      simp only [Concept.replace]
+      by_cases h : (Concept.top : Concept) = E
+      · rw [if_pos h, h]; exact hdef t d
+      · rw [if_neg h]
+  | name b =>
+      intro t d
+      simp only [Concept.replace]
+      by_cases h : (Concept.name b) = E
+      · rw [if_pos h, h]; exact hdef t d
+      · rw [if_neg h]
+  | meet C₁ C₂ ih₁ ih₂ =>
+      intro t d
+      simp only [Concept.replace]
+      by_cases h : (Concept.meet C₁ C₂) = E
+      · rw [if_pos h, h]; exact hdef t d
+      · rw [if_neg h]
+        simp only [ext]
+        exact and_congr (ih₁ t d) (ih₂ t d)
+  | some r C₁ ih₁ =>
+      intro t d
+      simp only [Concept.replace]
+      by_cases h : (Concept.some r C₁) = E
+      · rw [if_pos h, h]; exact hdef t d
+      · rw [if_neg h]
+        simp only [ext]
+        constructor
+        · rintro ⟨e, hr, he⟩; exact ⟨e, hr, (ih₁ t e).mp he⟩
+        · rintro ⟨e, hr, he⟩; exact ⟨e, hr, (ih₁ t e).mpr he⟩
+  | next C₁ ih₁ =>
+      intro t d
+      simp only [Concept.replace]
+      by_cases h : (Concept.next C₁) = E
+      · rw [if_pos h, h]; exact hdef t d
+      · rw [if_neg h]
+        simp only [ext]
+        exact ih₁ (t + 1) d
+  | luntil C₁ C₂ ih₁ ih₂ =>
+      intro t d
+      simp only [Concept.replace]
+      by_cases h : (Concept.luntil C₁ C₂) = E
+      · rw [if_pos h, h]; exact hdef t d
+      · rw [if_neg h]
+        simp only [ext]
+        constructor
+        · rintro ⟨t', ht', hD, hC⟩
+          exact ⟨t', ht', (ih₂ t' d).mp hD,
+                 fun t'' h1 h2 => (ih₁ t'' d).mp (hC t'' h1 h2)⟩
+        · rintro ⟨t', ht', hD, hC⟩
+          exact ⟨t', ht', (ih₂ t' d).mpr hD,
+                 fun t'' h1 h2 => (ih₁ t'' d).mpr (hC t'' h1 h2)⟩
+  | globally C₁ ih₁ =>
+      intro t d
+      simp only [Concept.replace]
+      by_cases h : (Concept.globally C₁) = E
+      · rw [if_pos h, h]; exact hdef t d
+      · rw [if_neg h]
+        simp only [ext]
+        constructor
+        · intro hall t' ht'; exact (ih₁ t' d).mp (hall t' ht')
+        · intro hall t' ht'; exact (ih₁ t' d).mpr (hall t' ht')
+
+/-- Replace `E` by `a` on both sides of an axiom (role inclusions unchanged). -/
+def Axiom.replace (E : Concept) (a : ConceptName) : Axiom → Axiom
+  | .gci C D  => .gci (C.replace E a) (D.replace E a)
+  | .ri r s u => .ri r s u
+
+/-- Under a definition `a ≡ E`, replacement preserves axiom satisfaction. -/
+theorem satisfies_replace_of_def {Δ : Type} (J : TemporalInterp Δ) (E : Concept) (a : ConceptName)
+    (hdef : ∀ t d, ext J (.name a) t d ↔ ext J E t d) (ax : Axiom) :
+    satisfies J (ax.replace E a) ↔ satisfies J ax := by
+  cases ax with
+  | gci C D =>
+      simp only [Axiom.replace]
+      constructor
+      · intro h t d hC
+        exact (ext_replace_of_def J E a hdef D t d).mp
+                (h t d ((ext_replace_of_def J E a hdef C t d).mpr hC))
+      · intro h t d hC
+        exact (ext_replace_of_def J E a hdef D t d).mpr
+                (h t d ((ext_replace_of_def J E a hdef C t d).mp hC))
+  | ri r s u => exact Iff.rfl
+
+/-! ## One normalization step (fully proved)
+
+    A single step replaces a sub-concept `E` (in every axiom) by a fresh name `a`
+    and adds the definition `a ≡ E`.  Combining the conservativity engine with the
+    replacement lemma, the step is a conservative extension: equisatisfiable, and
+    every model of the result is a model of the input.  The full L1 algorithm
+    iterates this step (on a strictly decreasing concept-complexity measure, with
+    fresh names) until the NF shapes are reached. -/
+
+/-- **One normalization step is conservative.**  For a fresh name `a` (not in `T`
+    nor `E`), replacing `E` by `a` throughout and adding `a ≡ E` preserves
+    satisfiability, and every model of the result is a model of `T`. -/
+theorem normalization_step_conservative (T : TBox) (a : ConceptName) (E : Concept)
+    (hT : ∀ ax ∈ T, ¬ AxMentions a ax) (hE : ¬ E.mentions a) :
+    (satisfiable T ↔
+      satisfiable (T.map (Axiom.replace E a) ++ [Axiom.gci (.name a) E, Axiom.gci E (.name a)]))
+    ∧ (∀ (Δ : Type) (I : TemporalInterp Δ),
+        models I (T.map (Axiom.replace E a) ++ [Axiom.gci (.name a) E, Axiom.gci E (.name a)]) →
+        models I T) := by
+  -- reduct: every model of the step result is a model of T
+  have reduct : ∀ (Δ : Type) (I : TemporalInterp Δ),
+      models I (T.map (Axiom.replace E a) ++ [Axiom.gci (.name a) E, Axiom.gci E (.name a)]) →
+      models I T := by
+    intro Δ I hI' ax hax
+    have hd1 : satisfies I (Axiom.gci (.name a) E) :=
+      hI' _ (List.mem_append.mpr (Or.inr (by simp)))
+    have hd2 : satisfies I (Axiom.gci E (.name a)) :=
+      hI' _ (List.mem_append.mpr (Or.inr (by simp)))
+    have hdef : ∀ t d, ext I (.name a) t d ↔ ext I E t d :=
+      fun t d => ⟨fun h => hd1 t d h, fun h => hd2 t d h⟩
+    have hrep : satisfies I (ax.replace E a) :=
+      hI' _ (List.mem_append.mpr (Or.inl (List.mem_map_of_mem hax)))
+    exact (satisfies_replace_of_def I E a hdef ax).mp hrep
+  refine ⟨⟨?_, ?_⟩, reduct⟩
+  · -- (→) satisfiable T → satisfiable (step)
+    rintro ⟨Δ, I, hI⟩
+    refine ⟨Δ, defineInterp I a E, ?_⟩
+    obtain ⟨hd1, hd2⟩ := defineInterp_def_holds I a E hE
+    have hdef : ∀ t d, ext (defineInterp I a E) (.name a) t d ↔ ext (defineInterp I a E) E t d :=
+      fun t d => ⟨fun h => hd1 t d h, fun h => hd2 t d h⟩
+    intro ax hax
+    rcases List.mem_append.mp hax with hin | hin
+    · obtain ⟨ax₀, hax₀, rfl⟩ := List.mem_map.mp hin
+      rw [satisfies_replace_of_def (defineInterp I a E) E a hdef ax₀]
+      exact (satisfies_defineInterp_not_mentions I a E ax₀ (hT ax₀ hax₀)).mpr (hI ax₀ hax₀)
+    · simp only [List.mem_cons, List.not_mem_nil, or_false] at hin
+      rcases hin with rfl | rfl
+      · exact hd1
+      · exact hd2
+  · -- (←) satisfiable (step) → satisfiable T, via reduct
+    rintro ⟨Δ, I, hI'⟩
+    exact ⟨Δ, I, reduct Δ I hI'⟩
+
 /-! ## L1: Normal form -/
 
 /-- **Lemma L1** (Normal form exists).
@@ -177,10 +341,22 @@ theorem definition_introduction_conservative (T : TBox) (a : ConceptName) (E : C
 
     The statement was corrected from an earlier `∀ I, models I T ↔ models I T'`,
     which is **false** once fresh names are introduced (a model of `T` need not
-    interpret the fresh names as their definitions).  The engine
-    (`definition_introduction_conservative`) is proved sorry-free; the full
-    recursive algorithm (term-size induction, fresh-name supply, the subconcept
-    replacement step) is the remaining `sorry`. -/
+    interpret the fresh names as their definitions).
+
+    **Proved sorry-free (the per-step content):** `normalization_step_conservative`
+    — one step (replace a sub-concept `E` by a fresh name `a`, add `a ≡ E`) is a
+    conservative extension (equisatisfiable + reduct).  Built from the engine
+    (`definition_introduction_conservative`) and the replacement lemma
+    (`ext_replace_of_def`).
+
+    **Remaining `sorry` (the iteration):** apply `normalization_step_conservative`
+    on a strictly decreasing concept-complexity measure (well-founded recursion),
+    with a fresh-name supply, until the NF shapes are reached, threading the
+    per-step conservativity transitively.  This also needs the **polarity
+    precondition** — `□` only on the right, `𝒰`/`◇` only on the left — since e.g.
+    `A ⊑ ◇B` has no faithful NF form (right-side `◇` is unsound to box; see Q3).
+    The current statement omits that precondition, so it is provable only for the
+    polarity-respecting fragment. -/
 theorem l1_normal_form_exists (T : TBox) :
     ∃ T' : TBox,
       (∀ ax ∈ T', (∃ C D, ax = .gci C D ∧ LhsNF C ∧ RhsNF D) ∨
