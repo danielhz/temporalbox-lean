@@ -12,3 +12,4 @@ import LTEL.Soundness
 import LTEL.Faithfulness
 import LTEL.Tractability
 import LTEL.Conjectures
+import LTEL.ELBE
