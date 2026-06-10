@@ -44,6 +44,54 @@ theorem time_early (L : Lasso) {t : Nat} (ht : t < L.prefixLen) : L.time t = t :
 theorem time_idem (L : Lasso) (t : Nat) : L.time (L.time t) = L.time t :=
   L.time_early (L.time_lt_prefix t)
 
+/-- `time L.prefixLen = L.loop`: the first wrap lands on the loop index. -/
+theorem time_prefixLen (L : Lasso) : L.time L.prefixLen = L.loop := by
+  simp only [Lasso.time, lt_irrefl, if_false, Nat.sub_self, Nat.zero_mod, Nat.add_zero]
+
+/-- **Successor homomorphism**: the lasso position of `t+1` is the position
+    reached by stepping once from the position of `t`.  This is what makes the
+    Next (○) operator commute with the fold. -/
+theorem time_succ (L : Lasso) (t : Nat) :
+    L.time (t + 1) = L.time (L.time t + 1) := by
+  rcases Nat.lt_or_ge t L.prefixLen with ht | ht
+  · -- t < prefixLen: time t = t, both sides reduce to L.time (t+1)
+    rw [L.time_early ht]
+  · -- t ≥ prefixLen
+    have hℓ : L.loop < L.prefixLen := L.hLoop
+    have hd : 0 < L.prefixLen - L.loop := Nat.sub_pos_of_lt hℓ
+    have hge1 : ¬ (t < L.prefixLen) := Nat.not_lt.mpr ht
+    have hge2 : ¬ (t + 1 < L.prefixLen) := by omega
+    have hrlt : (t - L.prefixLen) % (L.prefixLen - L.loop) < L.prefixLen - L.loop :=
+      Nat.mod_lt _ hd
+    have htime_t : L.time t = L.loop + (t - L.prefixLen) % (L.prefixLen - L.loop) := by
+      simp only [Lasso.time, if_neg hge1]
+    have hle : L.time t + 1 ≤ L.prefixLen := by rw [htime_t]; omega
+    have hdm := Nat.div_add_mod (t - L.prefixLen) (L.prefixLen - L.loop)
+    rcases Nat.lt_or_eq_of_le hle with hcase | hcase
+    · -- no wrap: time t + 1 < prefixLen
+      have hrlt' : (t - L.prefixLen) % (L.prefixLen - L.loop) + 1 < L.prefixLen - L.loop := by
+        have h := hcase; rw [htime_t] at h; omega
+      have hval : (t + 1 - L.prefixLen) % (L.prefixLen - L.loop)
+          = (t - L.prefixLen) % (L.prefixLen - L.loop) + 1 := by
+        rw [show t + 1 - L.prefixLen
+              = ((t - L.prefixLen) % (L.prefixLen - L.loop) + 1)
+                + (L.prefixLen - L.loop) * ((t - L.prefixLen) / (L.prefixLen - L.loop))
+            from by omega,
+           Nat.add_mul_mod_self_left, Nat.mod_eq_of_lt hrlt']
+      rw [L.time_early hcase, htime_t]
+      simp only [Lasso.time, if_neg hge2, hval, Nat.add_assoc]
+    · -- wrap: time t + 1 = prefixLen
+      have hrdd : (t - L.prefixLen) % (L.prefixLen - L.loop) + 1 = L.prefixLen - L.loop := by
+        have h := hcase; rw [htime_t] at h; omega
+      have hval0 : (t + 1 - L.prefixLen) % (L.prefixLen - L.loop) = 0 := by
+        rw [show t + 1 - L.prefixLen
+              = (L.prefixLen - L.loop)
+                + (L.prefixLen - L.loop) * ((t - L.prefixLen) / (L.prefixLen - L.loop))
+            from by omega,
+           Nat.add_mul_mod_self_left, Nat.mod_self]
+      rw [hcase, L.time_prefixLen]
+      simp only [Lasso.time, if_neg hge2, hval0, Nat.add_zero]
+
 /-- Build a lasso from a repeated index pair `i < j`: prefix `j`, loop `i`. -/
 def ofRepeat {i j : Nat} (h : i < j) : Lasso where
   prefixLen := j
@@ -99,42 +147,127 @@ theorem foldLasso_isLassoPeriodic (I : TemporalInterp Δ) (L : Lasso) :
   show I.snapshot (L.time t) = I.snapshot (L.time (L.time t))
   rw [L.time_idem]
 
+/-- The fold leaves the (rigid) role extension unchanged. -/
+theorem foldLasso_role (I : TemporalInterp Δ) (L : Lasso) (r : RoleName) (d e : Δ) :
+    (I.foldLasso L).role r d e = I.role r d e := by
+  show (I.snapshot (L.time 0)).role r d e = (I.snapshot 0).role r d e
+  rw [L.time_early L.hPrefix]
+
+/-! ## The fold preserves the eventuality-free fragment (fully proved)
+
+    Folding preserves satisfaction for the fragment **without** □ and 𝒰
+    (`BoxUntilFree`), provided the loop is *good*: truth of every box/until-free
+    concept agrees at the loop index and at the prefix length.  This is the exact
+    boundary of what folding can achieve — see the L3 note below for why □/𝒰
+    cannot be added. -/
+
+/-- Concepts free of the lookahead operators □ and 𝒰. -/
+inductive BoxUntilFree : Concept → Prop where
+  | top  : BoxUntilFree .top
+  | name : BoxUntilFree (.name A)
+  | meet : BoxUntilFree C → BoxUntilFree D → BoxUntilFree (.meet C D)
+  | some : BoxUntilFree C → BoxUntilFree (.some r C)
+  | next : BoxUntilFree C → BoxUntilFree (.next C)
+
+/-- A loop is *good* for `I` when truth of every box/until-free concept agrees at
+    the loop index and at the prefix length.  This is exactly the wrap-around
+    coherence the Next operator needs. -/
+def GoodLoop (I : TemporalInterp Δ) (L : Lasso) : Prop :=
+  ∀ C, BoxUntilFree C → ∀ d, (ext I C L.loop d ↔ ext I C L.prefixLen d)
+
+/-- **Substitution lemma**: on the box/until-free fragment, truth in the fold at
+    time `t` equals truth in `I` at the folded time `L.time t`. -/
+theorem foldLasso_ext (I : TemporalInterp Δ) (L : Lasso) (hgood : GoodLoop I L) :
+    ∀ {C : Concept}, BoxUntilFree C → ∀ (t : Nat) (d : Δ),
+      (ext (I.foldLasso L) C t d ↔ ext I C (L.time t) d) := by
+  intro C hC
+  induction hC with
+  | top => intro t d; exact Iff.rfl
+  | name => intro t d; exact Iff.rfl
+  | meet _ _ ihC ihD =>
+      intro t d
+      exact and_congr (ihC t d) (ihD t d)
+  | @some r C _ ihC =>
+      intro t d
+      constructor
+      · rintro ⟨e, hr, hC'⟩
+        exact ⟨e, by rwa [foldLasso_role] at hr, (ihC t e).mp hC'⟩
+      · rintro ⟨e, hr, hC'⟩
+        exact ⟨e, by rw [foldLasso_role]; exact hr, (ihC t e).mpr hC'⟩
+  | @next C hC ihC =>
+      intro t d
+      show ext (I.foldLasso L) C (t + 1) d ↔ ext I C (L.time t + 1) d
+      rw [ihC (t + 1) d, L.time_succ t]
+      have hle1 : L.time t + 1 ≤ L.prefixLen := L.time_lt_prefix t
+      rcases Nat.lt_or_eq_of_le hle1 with hlt | heq
+      · rw [L.time_early hlt]
+      · rw [heq, L.time_prefixLen]
+        exact hgood C hC d
+
+/-- A single axiom is in the box/until-free fragment. -/
+def AxBoxUntilFree : Axiom → Prop
+  | .gci C D  => BoxUntilFree C ∧ BoxUntilFree D
+  | .ri _ _ _ => True
+
+/-- A TBox is in the box/until-free fragment. -/
+def TBoxBoxUntilFree (T : TBox) : Prop := ∀ ax ∈ T, AxBoxUntilFree ax
+
+/-- **The fold preserves models on the eventuality-free fragment**, given a good
+    loop.  (For □/𝒰 this is false — see the L3 note.) -/
+theorem foldLasso_preserves_models (I : TemporalInterp Δ) (L : Lasso)
+    (hgood : GoodLoop I L) (T : TBox) (hbf : TBoxBoxUntilFree T) (hI : models I T) :
+    models (I.foldLasso L) T := by
+  intro ax hax
+  cases ax with
+  | gci C D =>
+      obtain ⟨hbC, hbD⟩ := hbf _ hax
+      intro t d hC
+      have hCI : ext I C (L.time t) d := (foldLasso_ext I L hgood hbC t d).mp hC
+      exact (foldLasso_ext I L hgood hbD t d).mpr (hI _ hax (L.time t) d hCI)
+  | ri r s u =>
+      intro d e f hr hs
+      rw [foldLasso_role] at hr hs ⊢
+      exact hI _ hax d e f hr hs
+
 /-! ## L3: Small-model property -/
 
 /-- **Lemma L3** (Small-model property, rigid-concept sub-fragment).
 
-    A satisfiable TBox has a lasso model.  Standard proof: abstract each time
-    point to its *type* (the set of subconcepts it realises, plus which
-    eventualities are pending); the type space is finite (bounded by 2^|sub(T)|),
-    so by `exists_repeat` some type recurs within 2^|sub(T)| + 1 steps, and one
-    folds the model at that point (`foldLasso`) into a lasso.
+    A satisfiable TBox has a lasso model.
 
-    **What is proved here vs. open.**  The two structural ingredients are proved
-    sorry-free above: the pigeonhole step (`exists_repeat`) and the fold into a
-    lasso-periodic interpretation (`foldLasso`, `foldLasso_isLassoPeriodic`).
-    The remaining obligation is `models (I.foldLasso L) T`, i.e. that the fold
-    preserves satisfaction.  This is the genuine crux and is **not** discharged:
+    **State of the formalisation.**  Two precise obstructions separate the
+    machine-checked results above from the full statement, and both are genuine
+    (not artefacts of the encoding):
 
-      • Local axioms (EL GCIs, role inclusions, ○) are preserved by any fold at a
-        repeated snapshot, but
-      • the lookahead operators □ and 𝒰 are **not** preserved by a naive fold at
-        the first repeated *snapshot*.  An eventuality `A 𝒰 B` pending in the
-        tail may be fulfilled only outside the chosen loop, so the type abstraction
-        (not raw snapshot equality) and a fold point chosen to fulfil all pending
-        eventualities within one period are required.  Formalising that
-        eventuality-fulfilment argument (the temporal-EL decidability proof) is
-        left open; `exists_repeat` reduced to a snapshot is deliberately **not**
-        used here, because reducing to snapshot equality would be unsound for
-        □/𝒰.
+    1. *Folding cannot manufacture periodicity.*  `foldLasso` collapses the
+       timeline of an *existing* model, and `foldLasso_preserves_models` shows
+       this preserves satisfaction on the eventuality-free fragment **whenever a
+       `GoodLoop` exists** (proved sorry-free).  But a `GoodLoop` is essentially
+       periodicity of the model itself: temporal interpretations are not
+       deterministic transition systems, so `snapshot i = snapshot j` does *not*
+       give `snapshot (i+1) = snapshot (j+1)`.  Hence a `GoodLoop` need not exist
+       for an arbitrary (even finite-domain) model; the periodic model must be
+       *constructed* (the quasimodel/type unravelling), which folding cannot do.
 
+    2. *□ and 𝒰 break the substitution lemma.*  `foldLasso_ext` proves
+       `ext (fold) C t d ↔ ext I C (L.time t) d` for box/until-free `C`.  For `□C`
+       it is **false**: `ext (□C)` quantifies over the infinite future, while the
+       fold quantifies only over the bounded loop, so an eventuality fulfilled
+       outside the loop is lost.  Adding □/𝒰 therefore requires the eventuality-
+       fulfilment construction (a fold point realising every pending eventuality
+       within one period) — the temporal-EL decidability proof — not a fold.
+
+    What *is* proved sorry-free: `exists_repeat` (pigeonhole), `time_succ`
+    (Next commutes with folding), `foldLasso_isLassoPeriodic`, `foldLasso_ext`
+    (substitution on the eventuality-free fragment), and
+    `foldLasso_preserves_models` (the conditional small-model step).
     For rigid concepts the lasso length is at most 2^|CN| + 1. -/
 theorem l3_small_model_rigid (T : TBox) (h : satisfiable T) :
     ∃ (L : Lasso) (Δ : Type) (I : TemporalInterp Δ),
       models I T ∧ IsLassoPeriodic I L := by
   obtain ⟨Δ, I, hI⟩ := h
-  -- Ingredients available: `exists_repeat` on the type sequence yields `i < j`;
-  -- `Lasso.ofRepeat` builds `L`; `foldLasso_isLassoPeriodic` gives periodicity.
-  -- Open: choosing the fold point so `models (I.foldLasso L) T` (eventualities).
+  -- Reduced (see note): need a GoodLoop + eventuality-fulfilment to invoke
+  -- `foldLasso_preserves_models` and `foldLasso_isLassoPeriodic`.
   sorry
 
 /-- For the full non-rigid fragment a lasso model still exists (satisfiability
