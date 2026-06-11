@@ -442,6 +442,112 @@ theorem Conservative.step (T : TBox) (a : ConceptName) (E : Concept)
   ⟨(normalization_step_conservative T a E hT hE).1,
    (normalization_step_conservative T a E hT hE).2⟩
 
+/-! ## Termination measure (partial)
+
+    The iteration's measure is `cpx`: the number of **complex proper
+    sub-concepts** (non-atomic occurrences nested below an operator).  `cpx = 0`
+    exactly on the NF-able shapes, and a step on an innermost complex `E` should
+    strictly decrease it.  The foundational fact is monotonicity — replacing a
+    sub-concept by a name never increases `cpx` — proved here. -/
+
+/-- A concept is complex if it is not a name or `⊤`. -/
+def Concept.isComplex : Concept → Bool
+  | .name _ => false
+  | .top    => false
+  | _       => true
+
+/-- Number of complex proper sub-concept occurrences (the termination measure). -/
+def Concept.cpx : Concept → Nat
+  | .top        => 0
+  | .name _     => 0
+  | .meet C D   => (if C.isComplex then 1 else 0) + C.cpx + ((if D.isComplex then 1 else 0) + D.cpx)
+  | .some _ C   => (if C.isComplex then 1 else 0) + C.cpx
+  | .next C     => (if C.isComplex then 1 else 0) + C.cpx
+  | .luntil C D => (if C.isComplex then 1 else 0) + C.cpx + ((if D.isComplex then 1 else 0) + D.cpx)
+  | .globally C => (if C.isComplex then 1 else 0) + C.cpx
+
+/-- Replacing a sub-concept by a name does not increase the "is-complex" bit. -/
+theorem complexBit_replace_le (E : Concept) (a : ConceptName) (C : Concept) :
+    (if (C.replace E a).isComplex then (1 : Nat) else 0) ≤ (if C.isComplex then 1 else 0) := by
+  cases C with
+  | name b =>
+      simp only [Concept.replace]; by_cases h : Concept.name b = E
+      · simp only [if_pos h]; simp [Concept.isComplex]
+      · simp only [if_neg h]; simp [Concept.isComplex]
+  | top =>
+      simp only [Concept.replace]; by_cases h : (Concept.top : Concept) = E
+      · simp only [if_pos h]; simp [Concept.isComplex]
+      · simp only [if_neg h]; simp [Concept.isComplex]
+  | meet C1 C2 =>
+      simp only [Concept.replace]; by_cases h : Concept.meet C1 C2 = E
+      · simp only [if_pos h]; simp [Concept.isComplex]
+      · simp only [if_neg h]; simp [Concept.isComplex]
+  | some r C1 =>
+      simp only [Concept.replace]; by_cases h : Concept.some r C1 = E
+      · simp only [if_pos h]; simp [Concept.isComplex]
+      · simp only [if_neg h]; simp [Concept.isComplex]
+  | next C1 =>
+      simp only [Concept.replace]; by_cases h : Concept.next C1 = E
+      · simp only [if_pos h]; simp [Concept.isComplex]
+      · simp only [if_neg h]; simp [Concept.isComplex]
+  | luntil C1 C2 =>
+      simp only [Concept.replace]; by_cases h : Concept.luntil C1 C2 = E
+      · simp only [if_pos h]; simp [Concept.isComplex]
+      · simp only [if_neg h]; simp [Concept.isComplex]
+  | globally C1 =>
+      simp only [Concept.replace]; by_cases h : Concept.globally C1 = E
+      · simp only [if_pos h]; simp [Concept.isComplex]
+      · simp only [if_neg h]; simp [Concept.isComplex]
+
+/-- **Monotonicity of the measure**: replacing a sub-concept `E` by a name `a`
+    never increases `cpx`.  (The strict-decrease version, needed for termination,
+    additionally requires that `E` actually occurs as a complex proper
+    sub-concept — that and the picker are the remaining work.) -/
+theorem cpx_replace_le (E : Concept) (a : ConceptName) :
+    ∀ (C : Concept), (C.replace E a).cpx ≤ C.cpx := by
+  intro C
+  induction C with
+  | top =>
+      simp only [Concept.replace]; by_cases h : (Concept.top : Concept) = E
+      · simp only [if_pos h]; simp [Concept.cpx]
+      · simp only [if_neg h]; simp [Concept.cpx]
+  | name b =>
+      simp only [Concept.replace]; by_cases h : (Concept.name b) = E
+      · simp only [if_pos h]; simp [Concept.cpx]
+      · simp only [if_neg h]; simp [Concept.cpx]
+  | meet C D ihC ihD =>
+      simp only [Concept.replace]; by_cases h : (Concept.meet C D) = E
+      · simp only [if_pos h]; simp [Concept.cpx]
+      · simp only [if_neg h]; simp only [Concept.cpx]
+        have hC := complexBit_replace_le E a C
+        have hD := complexBit_replace_le E a D
+        omega
+  | some r C ihC =>
+      simp only [Concept.replace]; by_cases h : (Concept.some r C) = E
+      · simp only [if_pos h]; simp [Concept.cpx]
+      · simp only [if_neg h]; simp only [Concept.cpx]
+        have hC := complexBit_replace_le E a C
+        omega
+  | next C ihC =>
+      simp only [Concept.replace]; by_cases h : (Concept.next C) = E
+      · simp only [if_pos h]; simp [Concept.cpx]
+      · simp only [if_neg h]; simp only [Concept.cpx]
+        have hC := complexBit_replace_le E a C
+        omega
+  | luntil C D ihC ihD =>
+      simp only [Concept.replace]; by_cases h : (Concept.luntil C D) = E
+      · simp only [if_pos h]; simp [Concept.cpx]
+      · simp only [if_neg h]; simp only [Concept.cpx]
+        have hC := complexBit_replace_le E a C
+        have hD := complexBit_replace_le E a D
+        omega
+  | globally C ihC =>
+      simp only [Concept.replace]; by_cases h : (Concept.globally C) = E
+      · simp only [if_pos h]; simp [Concept.cpx]
+      · simp only [if_neg h]; simp only [Concept.cpx]
+        have hC := complexBit_replace_le E a C
+        omega
+
 /-! ## L1: Normal form -/
 
 /-- **Lemma L1** (Normal form exists).
