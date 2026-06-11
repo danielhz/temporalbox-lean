@@ -610,6 +610,27 @@ theorem Conservative.directional_lhs (C D E : Concept) (a : ConceptName)
     exact hCD t d ((ext_replace_of_def (defineInterp I a E) E a hdef C t d).mp hCd)
   · exact hd2
 
+/-- **Meet-split on the right.**  `C ⊑ D ⊓ E` is equivalent to `{C ⊑ D, C ⊑ E}`.
+    This turns the one non-NF output of a meet step (`a ⊑ B₁ ⊓ B₂`, a meet on the
+    right) into two NF-EL1 axioms — the last shape needed for NF-producing steps. -/
+theorem Conservative.split_meet_rhs (C D E : Concept) :
+    Conservative [Axiom.gci C (Concept.meet D E)] [Axiom.gci C D, Axiom.gci C E] := by
+  have reduct : ∀ (Δ : Type) (I : TemporalInterp Δ),
+      models I [Axiom.gci C D, Axiom.gci C E] → models I [Axiom.gci C (Concept.meet D E)] := by
+    intro Δ I hI ax hmem
+    simp only [List.mem_singleton] at hmem; subst hmem
+    intro t d hC
+    exact ⟨(hI (Axiom.gci C D) (by simp)) t d hC, (hI (Axiom.gci C E) (by simp)) t d hC⟩
+  refine ⟨⟨?_, fun h => h.elim fun Δ h => h.elim fun I hI => ⟨Δ, I, reduct Δ I hI⟩⟩, reduct⟩
+  rintro ⟨Δ, I, hI⟩
+  have hax := hI (Axiom.gci C (Concept.meet D E)) (by simp)
+  refine ⟨Δ, I, ?_⟩
+  intro ax hmem
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at hmem
+  rcases hmem with rfl | rfl
+  · intro t d hC; exact (hax t d hC).1
+  · intro t d hC; exact (hax t d hC).2
+
 /-! ## Termination measure (partial)
 
     The iteration's measure is `cpx`: the number of **complex proper
@@ -740,14 +761,19 @@ theorem cpx_replace_le (E : Concept) (a : ConceptName) :
     * the **fresh-name supply** is solved — `freshName T` is provably unmentioned
       (`freshName_not_mentions`).
 
-    **The single remaining `sorry` — termination.**  All that is missing is the
-    well-founded recursion that *builds* the chain: a complexity measure that the
-    step strictly decreases (the naive size measure does **not** — a step adds
-    `a ⊑ E`, `E ⊑ a`, re-introducing `E`; the right measure counts operator
-    nodes *nested below another operator*, choosing an innermost complex `E` so
-    the two added axioms are already in NF), plus the proof that measure `0`
-    means NF.  Given that, strong induction on the measure + `Conservative.trans`
-    closes L1.
+    The **NF-producing step toolkit is complete** (all sorry-free):
+    `Conservative.step` (symmetric, for ∃/○), `directional_rhs`/`directional_lhs`
+    (one-sided, for positive `□` / negative `𝒰`, via monotone substitution), and
+    `split_meet_rhs` (the meet-on-the-right split into NF-EL1 axioms).  Plus the
+    measure `cpx` with monotonicity (`cpx_replace_le`) and the fresh-name supply.
+
+    **The single remaining `sorry` — the recursion driver.**  What is missing is
+    purely the terminating recursion that *selects and applies* these steps: an
+    innermost-flat-complex sub-concept picker, the strict-decrease companion of
+    `cpx_replace_le` (a step on an occurring complex `E` strictly lowers `cpx`),
+    the characterization `cpx = 0 ⇒ NF` (with the polarity precondition below),
+    and the strong induction on `cpx` threaded through `Conservative.trans`.  No
+    foundational lemmas remain — only the driver.
 
     Also needs the **polarity precondition** — `□` only on the right, `𝒰`/`◇`
     only on the left — since `A ⊑ ◇B` has no faithful NF form (right-side `◇` is
