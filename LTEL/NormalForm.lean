@@ -258,6 +258,110 @@ theorem ext_replace_of_def {Δ : Type} (I : TemporalInterp Δ) (E : Concept) (a 
         · intro hall t' ht'; exact (ih₁ t' d).mp (hall t' ht')
         · intro hall t' ht'; exact (ih₁ t' d).mpr (hall t' ht')
 
+/-! ## Monotone substitution — the basis of polarity-directional steps
+
+    All LTEL operators are monotone (no negation), so a sub-concept `E` may be
+    named by a fresh `a` with a **one-directional** definition, sound when used in
+    the matching polarity:
+      * a positive (right-hand, super-concept) occurrence needs only `a ⊑ E`
+        (e.g. `a ⊑ □B`, which is NF — `□` lives only on the right);
+      * a negative (left-hand, sub-concept) occurrence needs only `E ⊑ a`
+        (e.g. `B₁ 𝒰 B₂ ⊑ a`, NF — `𝒰` lives only on the left).
+    Either inclusion suffices because replacing `E` by `a` is monotone — the two
+    lemmas below. -/
+
+/-- If `a ⊆ E`, replacing `E` by `a` can only **shrink** a concept's extension
+    (sound for positive/right-hand occurrences). -/
+theorem ext_replace_mono_of_sub {Δ : Type} (J : TemporalInterp Δ) (E : Concept) (a : ConceptName)
+    (hsub : ∀ t d, ext J (.name a) t d → ext J E t d) :
+    ∀ (C : Concept) (t : Nat) (d : Δ), ext J (C.replace E a) t d → ext J C t d := by
+  intro C
+  induction C with
+  | top => intro t d _; exact trivial
+  | name b =>
+      intro t d h; simp only [Concept.replace] at h
+      by_cases hE : (Concept.name b) = E
+      · simp only [if_pos hE] at h; rw [hE]; exact hsub t d h
+      · simp only [if_neg hE] at h; exact h
+  | meet C D ihC ihD =>
+      intro t d h; simp only [Concept.replace] at h
+      by_cases hE : (Concept.meet C D) = E
+      · simp only [if_pos hE] at h; rw [hE]; exact hsub t d h
+      · simp only [if_neg hE] at h; simp only [ext] at h ⊢
+        exact ⟨ihC t d h.1, ihD t d h.2⟩
+  | some r C ihC =>
+      intro t d h; simp only [Concept.replace] at h
+      by_cases hE : (Concept.some r C) = E
+      · simp only [if_pos hE] at h; rw [hE]; exact hsub t d h
+      · simp only [if_neg hE] at h; simp only [ext] at h ⊢
+        obtain ⟨e, hr, he⟩ := h; exact ⟨e, hr, ihC t e he⟩
+  | next C ihC =>
+      intro t d h; simp only [Concept.replace] at h
+      by_cases hE : (Concept.next C) = E
+      · simp only [if_pos hE] at h; rw [hE]; exact hsub t d h
+      · simp only [if_neg hE] at h; simp only [ext] at h ⊢; exact ihC (t + 1) d h
+  | luntil C D ihC ihD =>
+      intro t d h; simp only [Concept.replace] at h
+      by_cases hE : (Concept.luntil C D) = E
+      · simp only [if_pos hE] at h; rw [hE]; exact hsub t d h
+      · simp only [if_neg hE] at h; simp only [ext] at h ⊢
+        obtain ⟨t', ht', hD, hC⟩ := h
+        exact ⟨t', ht', ihD t' d hD, fun t'' h1 h2 => ihC t'' d (hC t'' h1 h2)⟩
+  | globally C ihC =>
+      intro t d h; simp only [Concept.replace] at h
+      by_cases hE : (Concept.globally C) = E
+      · simp only [if_pos hE] at h; rw [hE]; exact hsub t d h
+      · simp only [if_neg hE] at h; simp only [ext] at h ⊢
+        intro t' ht'; exact ihC t' d (h t' ht')
+
+/-- If `E ⊆ a`, replacing `E` by `a` can only **grow** a concept's extension
+    (sound for negative/left-hand occurrences). -/
+theorem ext_replace_mono_of_sup {Δ : Type} (J : TemporalInterp Δ) (E : Concept) (a : ConceptName)
+    (hsup : ∀ t d, ext J E t d → ext J (.name a) t d) :
+    ∀ (C : Concept) (t : Nat) (d : Δ), ext J C t d → ext J (C.replace E a) t d := by
+  intro C
+  induction C with
+  | top =>
+      intro t d h; simp only [Concept.replace]
+      by_cases hE : (Concept.top : Concept) = E
+      · simp only [if_pos hE]; rw [hE] at h; exact hsup t d h
+      · simp only [if_neg hE]; exact h
+  | name b =>
+      intro t d h; simp only [Concept.replace]
+      by_cases hE : (Concept.name b) = E
+      · simp only [if_pos hE]; rw [hE] at h; exact hsup t d h
+      · simp only [if_neg hE]; exact h
+  | meet C D ihC ihD =>
+      intro t d h; simp only [Concept.replace]
+      by_cases hE : (Concept.meet C D) = E
+      · simp only [if_pos hE]; rw [hE] at h; exact hsup t d h
+      · simp only [if_neg hE]; simp only [ext] at h ⊢
+        exact ⟨ihC t d h.1, ihD t d h.2⟩
+  | some r C ihC =>
+      intro t d h; simp only [Concept.replace]
+      by_cases hE : (Concept.some r C) = E
+      · simp only [if_pos hE]; rw [hE] at h; exact hsup t d h
+      · simp only [if_neg hE]; simp only [ext] at h ⊢
+        obtain ⟨e, hr, he⟩ := h; exact ⟨e, hr, ihC t e he⟩
+  | next C ihC =>
+      intro t d h; simp only [Concept.replace]
+      by_cases hE : (Concept.next C) = E
+      · simp only [if_pos hE]; rw [hE] at h; exact hsup t d h
+      · simp only [if_neg hE]; simp only [ext] at h ⊢; exact ihC (t + 1) d h
+  | luntil C D ihC ihD =>
+      intro t d h; simp only [Concept.replace]
+      by_cases hE : (Concept.luntil C D) = E
+      · simp only [if_pos hE]; rw [hE] at h; exact hsup t d h
+      · simp only [if_neg hE]; simp only [ext] at h ⊢
+        obtain ⟨t', ht', hD, hC⟩ := h
+        exact ⟨t', ht', ihD t' d hD, fun t'' h1 h2 => ihC t'' d (hC t'' h1 h2)⟩
+  | globally C ihC =>
+      intro t d h; simp only [Concept.replace]
+      by_cases hE : (Concept.globally C) = E
+      · simp only [if_pos hE]; rw [hE] at h; exact hsup t d h
+      · simp only [if_neg hE]; simp only [ext] at h ⊢
+        intro t' ht'; exact ihC t' d (h t' ht')
+
 /-- Replace `E` by `a` on both sides of an axiom (role inclusions unchanged). -/
 def Axiom.replace (E : Concept) (a : ConceptName) : Axiom → Axiom
   | .gci C D  => .gci (C.replace E a) (D.replace E a)
@@ -441,6 +545,70 @@ theorem Conservative.step (T : TBox) (a : ConceptName) (E : Concept)
       (T.map (Axiom.replace E a) ++ [Axiom.gci (.name a) E, Axiom.gci E (.name a)]) :=
   ⟨(normalization_step_conservative T a E hT hE).1,
    (normalization_step_conservative T a E hT hE).2⟩
+
+/-- **Positive (right-hand) directional step.**  Name a sub-concept `E` of the
+    super-concept `D` by a fresh `a`, adding only the NF-friendly axiom `a ⊑ E`.
+    Conservative — the reduct uses monotonicity (`ext_replace_mono_of_sub`).
+    For `□B` on the right this gives `a ⊑ □B` (NF-T3); no `□B ⊑ a` needed. -/
+theorem Conservative.directional_rhs (C D E : Concept) (a : ConceptName)
+    (hfresh : ¬ AxMentions a (Axiom.gci C D)) (hE : ¬ E.mentions a) :
+    Conservative [Axiom.gci C D]
+      [Axiom.gci C (D.replace E a), Axiom.gci (.name a) E] := by
+  have reduct : ∀ (Δ : Type) (I : TemporalInterp Δ),
+      models I [Axiom.gci C (D.replace E a), Axiom.gci (.name a) E] →
+      models I [Axiom.gci C D] := by
+    intro Δ I hI ax hmem
+    simp only [List.mem_singleton] at hmem; subst hmem
+    have h1 := hI (Axiom.gci C (D.replace E a)) (by simp)
+    have h2 := hI (Axiom.gci (.name a) E) (by simp)
+    intro t d hCd
+    exact ext_replace_mono_of_sub I E a (fun t d h => h2 t d h) D t d (h1 t d hCd)
+  refine ⟨⟨?_, fun h => h.elim fun Δ h => h.elim fun I hI => ⟨Δ, I, reduct Δ I hI⟩⟩, reduct⟩
+  rintro ⟨Δ, I, hI⟩
+  have hax := hI (Axiom.gci C D) (by simp)
+  refine ⟨Δ, defineInterp I a E, ?_⟩
+  obtain ⟨hd1, hd2⟩ := defineInterp_def_holds I a E hE
+  have hdef : ∀ t d, ext (defineInterp I a E) (.name a) t d ↔ ext (defineInterp I a E) E t d :=
+    fun t d => ⟨fun h => hd1 t d h, fun h => hd2 t d h⟩
+  intro ax hmem
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at hmem
+  rcases hmem with rfl | rfl
+  · intro t d hCd
+    have hCD := (satisfies_defineInterp_not_mentions I a E (Axiom.gci C D) hfresh).mpr hax
+    exact (ext_replace_of_def (defineInterp I a E) E a hdef D t d).mpr (hCD t d hCd)
+  · exact hd1
+
+/-- **Negative (left-hand) directional step.**  Name a sub-concept `E` of the
+    sub-concept `C` by a fresh `a`, adding only the NF-friendly axiom `E ⊑ a`.
+    Conservative — the reduct uses monotonicity (`ext_replace_mono_of_sup`).
+    For `B₁ 𝒰 B₂` on the left this gives `B₁ 𝒰 B₂ ⊑ a` (NF-T4); no `a ⊑ …` needed. -/
+theorem Conservative.directional_lhs (C D E : Concept) (a : ConceptName)
+    (hfresh : ¬ AxMentions a (Axiom.gci C D)) (hE : ¬ E.mentions a) :
+    Conservative [Axiom.gci C D]
+      [Axiom.gci (C.replace E a) D, Axiom.gci E (.name a)] := by
+  have reduct : ∀ (Δ : Type) (I : TemporalInterp Δ),
+      models I [Axiom.gci (C.replace E a) D, Axiom.gci E (.name a)] →
+      models I [Axiom.gci C D] := by
+    intro Δ I hI ax hmem
+    simp only [List.mem_singleton] at hmem; subst hmem
+    have h1 := hI (Axiom.gci (C.replace E a) D) (by simp)
+    have h2 := hI (Axiom.gci E (.name a)) (by simp)
+    intro t d hCd
+    exact h1 t d (ext_replace_mono_of_sup I E a (fun t d h => h2 t d h) C t d hCd)
+  refine ⟨⟨?_, fun h => h.elim fun Δ h => h.elim fun I hI => ⟨Δ, I, reduct Δ I hI⟩⟩, reduct⟩
+  rintro ⟨Δ, I, hI⟩
+  have hax := hI (Axiom.gci C D) (by simp)
+  refine ⟨Δ, defineInterp I a E, ?_⟩
+  obtain ⟨hd1, hd2⟩ := defineInterp_def_holds I a E hE
+  have hdef : ∀ t d, ext (defineInterp I a E) (.name a) t d ↔ ext (defineInterp I a E) E t d :=
+    fun t d => ⟨fun h => hd1 t d h, fun h => hd2 t d h⟩
+  intro ax hmem
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at hmem
+  rcases hmem with rfl | rfl
+  · intro t d hCd
+    have hCD := (satisfies_defineInterp_not_mentions I a E (Axiom.gci C D) hfresh).mpr hax
+    exact hCD t d ((ext_replace_of_def (defineInterp I a E) E a hdef C t d).mp hCd)
+  · exact hd2
 
 /-! ## Termination measure (partial)
 
