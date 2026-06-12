@@ -3,6 +3,7 @@ import LTEL.UntilCompilation
 import LTEL.NormalForm
 import LTEL.Lasso
 import LTEL.BoxEmbedding
+import LTEL.RigidFragment
 
 /-!
 # Conjectures Q1–Q5: Formal Verdicts
@@ -153,3 +154,124 @@ def LassoCountermodelProperty : Prop :=
     turned out to be **provable** (forward via T1, backward via the canonical
     countermodel embedding); see `t2_entailment_faithfulness` in
     Faithfulness.lean.  Only `LassoCountermodelProperty` above remains open. -/
+
+/-! ## Proven instances of the lasso-countermodel property
+
+    The full property is open (it is the temporal-EL quasimodel construction),
+    but two substantial instances are machine-checked below:
+
+    * **static** (`lasso_countermodel_static`): for temporal-operator-free
+      `T`, `C`, `D`, every countermodel freezes at its witnessing time into a
+      constant — hence lasso — countermodel;
+    * **rigid** (`lasso_countermodel_rigid`): a rigid countermodel *is already*
+      a lasso countermodel — rigidity forces all snapshots to be equal.
+
+    The genuinely open residual is exactly the temporal case: countermodels
+    whose snapshots must evolve, where the loop must fulfil pending
+    eventualities (𝒰/◇) — the quasimodel unravelling. -/
+
+/-- A temporal-operator-free axiom. -/
+def StaticAxiom : Axiom → Prop
+  | .gci C D  => TemporalFree C ∧ TemporalFree D
+  | .ri _ _ _ => True
+
+/-- A temporal-operator-free TBox. -/
+def StaticTBox (T : TBox) : Prop := ∀ ax ∈ T, StaticAxiom ax
+
+/-- Freeze an interpretation at time `t₀`. -/
+def constInterp {Δ : Type} (I : TemporalInterp Δ) (t₀ : Nat) : TemporalInterp Δ where
+  snapshot _ := I.snapshot t₀
+  rigid_roles := fun _ _ _ _ _ => Iff.rfl
+
+theorem constInterp_isLassoPeriodic {Δ : Type} (I : TemporalInterp Δ) (t₀ : Nat) :
+    IsLassoPeriodic (constInterp I t₀) Lasso.trivial :=
+  fun _ => rfl
+
+/-- On temporal-free concepts, the frozen interpretation agrees (at any time)
+    with `I` at `t₀`. -/
+theorem constInterp_ext {Δ : Type} (I : TemporalInterp Δ) (t₀ : Nat) :
+    ∀ {C : Concept}, TemporalFree C → ∀ (s : Nat) (d : Δ),
+      (ext (constInterp I t₀) C s d ↔ ext I C t₀ d) := by
+  intro C hC
+  induction hC with
+  | top => intro s d; exact Iff.rfl
+  | name => intro s d; exact Iff.rfl
+  | meet _ _ ihC ihD =>
+      intro s d
+      simp only [ext]
+      exact and_congr (ihC s d) (ihD s d)
+  | @some C r _ ihC =>
+      intro s d
+      simp only [ext]
+      constructor
+      · rintro ⟨e, hr, he⟩
+        exact ⟨e, (I.rigid_roles r t₀ 0 d e).mp hr, (ihC s e).mp he⟩
+      · rintro ⟨e, hr, he⟩
+        exact ⟨e, (I.rigid_roles r t₀ 0 d e).mpr hr, (ihC s e).mpr he⟩
+
+/-- Freezing preserves satisfaction of static axioms. -/
+theorem constInterp_satisfies {Δ : Type} (I : TemporalInterp Δ) (t₀ : Nat) {ax : Axiom}
+    (hst : StaticAxiom ax) (h : satisfies I ax) :
+    satisfies (constInterp I t₀) ax := by
+  cases ax with
+  | gci X Y =>
+      intro s d hX
+      exact (constInterp_ext I t₀ hst.2 s d).mpr
+              (h t₀ d ((constInterp_ext I t₀ hst.1 s d).mp hX))
+  | ri r s u =>
+      intro d e f hr hs
+      exact (I.rigid_roles u 0 t₀ d f).mp
+              (h d e f ((I.rigid_roles r t₀ 0 d e).mp hr) ((I.rigid_roles s t₀ 0 e f).mp hs))
+
+/-- **Lasso countermodels — static instance** (machine-checked).  For
+    temporal-free `T`, `C`, `D`, every non-entailment has a constant (hence
+    lasso) countermodel: freeze any countermodel at its witnessing time. -/
+theorem lasso_countermodel_static (T : TBox) (C D : Concept)
+    (hT : StaticTBox T) (hC : TemporalFree C) (hD : TemporalFree D)
+    (h : ¬ entails T C D) :
+    ∃ (L : Lasso) (Δ : Type) (I : TemporalInterp Δ) (t : Nat) (d : Δ),
+      models I T ∧ IsLassoPeriodic I L ∧ ext I C t d ∧ ¬ ext I D t d := by
+  have h' : ∃ (Δ : Type) (I : TemporalInterp Δ),
+      models I T ∧ ∃ (t : Nat) (d : Δ), ext I C t d ∧ ¬ ext I D t d := by
+    by_contra hno
+    apply h
+    intro Δ I hI t d hCd
+    by_contra hDd
+    exact hno ⟨Δ, I, hI, t, d, hCd, hDd⟩
+  obtain ⟨Δ, I, hI, t₀, d₀, hCd, hDd⟩ := h'
+  refine ⟨Lasso.trivial, Δ, constInterp I t₀, 0, d₀, ?_,
+          constInterp_isLassoPeriodic I t₀, ?_, ?_⟩
+  · intro ax hax
+    exact constInterp_satisfies I t₀ (hT ax hax) (hI ax hax)
+  · exact (constInterp_ext I t₀ hC 0 d₀).mpr hCd
+  · intro hd
+    exact hDd ((constInterp_ext I t₀ hD 0 d₀).mp hd)
+
+/-- Rigid interpretations have all-equal snapshots (funext + propext). -/
+theorem rigidInterp_snapshot_eq {Δ : Type} {I : TemporalInterp Δ}
+    (h : RigidInterp I) (t t' : Nat) :
+    I.snapshot t = I.snapshot t' := by
+  have hconcept : (I.snapshot t).concept = (I.snapshot t').concept := by
+    funext A d
+    exact propext (h A t t' d)
+  have hrole : (I.snapshot t).role = (I.snapshot t').role := by
+    funext r d e
+    exact propext (I.rigid_roles r t t' d e)
+  calc I.snapshot t = ⟨(I.snapshot t).concept, (I.snapshot t).role⟩ := rfl
+    _ = ⟨(I.snapshot t').concept, (I.snapshot t').role⟩ := by rw [hconcept, hrole]
+    _ = I.snapshot t' := rfl
+
+/-- A rigid interpretation is lasso-periodic outright. -/
+theorem rigidInterp_isLassoPeriodic {Δ : Type} {I : TemporalInterp Δ}
+    (h : RigidInterp I) : IsLassoPeriodic I Lasso.trivial :=
+  fun t => rigidInterp_snapshot_eq h t (Lasso.trivial.time t)
+
+/-- **Lasso countermodels — rigid instance** (machine-checked): a rigid
+    countermodel is already a lasso countermodel; no construction needed. -/
+theorem lasso_countermodel_rigid (T : TBox) (C D : Concept)
+    (h : ∃ (Δ : Type) (I : TemporalInterp Δ) (t : Nat) (d : Δ),
+          RigidInterp I ∧ models I T ∧ ext I C t d ∧ ¬ ext I D t d) :
+    ∃ (L : Lasso) (Δ : Type) (I : TemporalInterp Δ) (t : Nat) (d : Δ),
+      models I T ∧ IsLassoPeriodic I L ∧ ext I C t d ∧ ¬ ext I D t d := by
+  obtain ⟨Δ, I, t, d, hrig, hI, hC, hD⟩ := h
+  exact ⟨Lasso.trivial, Δ, I, t, d, hI, rigidInterp_isLassoPeriodic hrig, hC, hD⟩
