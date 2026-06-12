@@ -88,3 +88,48 @@ theorem eventually_iff (C : Concept) (t : Nat) (d : Δ) :
     exact ⟨t', ht', hC, fun _ _ _ => trivial⟩
 
 end ext
+
+/-! ## Entailment, and triviality of satisfiability in the ⊥-free fragment
+
+LTEL as formalized here (and EL⁺ generally) has **no ⊥ and no negation**, so no
+TBox is inconsistent: the *total* interpretation — a singleton domain where
+every concept name and role holds everywhere, at every time — satisfies every
+axiom.  Consequently `satisfiable T` holds for every `T`, and
+satisfiability-phrased theorems are trivially true.  The informative reasoning
+problem for this fragment is **entailment** (subsumption), defined below. -/
+
+/-- T ⊨ C ⊑ D: every model of T satisfies the subsumption everywhere. -/
+def entails (T : TBox) (C D : Concept) : Prop :=
+  ∀ (Δ : Type) (I : TemporalInterp Δ), models I T →
+    ∀ (t : Nat) (d : Δ), ext I C t d → ext I D t d
+
+/-- The total interpretation: singleton domain, everything true everywhere. -/
+def totalInterp : TemporalInterp Unit where
+  snapshot _ := { concept := fun _ _ => True, role := fun _ _ _ => True }
+  rigid_roles := fun _ _ _ _ _ => Iff.rfl
+
+/-- Every concept holds everywhere in the total interpretation. -/
+theorem totalInterp_ext : ∀ (C : Concept) (t : Nat) (d : Unit), ext totalInterp C t d := by
+  intro C
+  induction C with
+  | top => intro t d; trivial
+  | name A => intro t d; trivial
+  | meet C D ihC ihD => intro t d; exact ⟨ihC t d, ihD t d⟩
+  | some r C ihC => intro t d; exact ⟨d, trivial, ihC t d⟩
+  | next C ihC => intro t d; exact ihC (t + 1) d
+  | luntil C D ihC ihD =>
+      intro t d
+      exact ⟨t, Nat.le_refl t, ihD t d, fun t'' _ _ => ihC t'' d⟩
+  | globally C ihC => intro t d t' _; exact ihC t' d
+
+/-- The total interpretation models every TBox. -/
+theorem totalInterp_models (T : TBox) : models totalInterp T := by
+  intro ax _
+  cases ax with
+  | gci C D => intro t d _; exact totalInterp_ext D t d
+  | ri r s u => intro d e f _ _; trivial
+
+/-- **No LTEL TBox is inconsistent.**  Satisfiability is trivial in the ⊥-free
+    fragment; only entailment is informative. -/
+theorem every_tbox_satisfiable (T : TBox) : satisfiable T :=
+  ⟨Unit, totalInterp, totalInterp_models T⟩

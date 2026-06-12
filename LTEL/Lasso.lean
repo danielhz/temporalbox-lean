@@ -231,49 +231,41 @@ theorem foldLasso_preserves_models (I : TemporalInterp Δ) (L : Lasso)
 
 /-! ## L3: Small-model property -/
 
-/-- **Lemma L3** (Small-model property, rigid-concept sub-fragment).
+/-- The trivial lasso: prefix length 1, loop at 0 — constant interpretations
+    are lasso-periodic for it. -/
+def Lasso.trivial : Lasso := ⟨1, 0, Nat.zero_lt_one, Nat.zero_lt_one⟩
 
-    A satisfiable TBox has a lasso model.
+/-- The total interpretation is (trivially) lasso-periodic: it is constant. -/
+theorem totalInterp_isLassoPeriodic : IsLassoPeriodic totalInterp Lasso.trivial :=
+  fun _ => rfl
 
-    **State of the formalisation.**  Two precise obstructions separate the
-    machine-checked results above from the full statement, and both are genuine
-    (not artefacts of the encoding):
+/-- **Lemma L3** (Small-model property, satisfiability phrasing) — **proved,
+    but the statement is weaker than it looks.**
 
-    1. *Folding cannot manufacture periodicity.*  `foldLasso` collapses the
-       timeline of an *existing* model, and `foldLasso_preserves_models` shows
-       this preserves satisfaction on the eventuality-free fragment **whenever a
-       `GoodLoop` exists** (proved sorry-free).  But a `GoodLoop` is essentially
-       periodicity of the model itself: temporal interpretations are not
-       deterministic transition systems, so `snapshot i = snapshot j` does *not*
-       give `snapshot (i+1) = snapshot (j+1)`.  Hence a `GoodLoop` need not exist
-       for an arbitrary (even finite-domain) model; the periodic model must be
-       *constructed* (the quasimodel/type unravelling), which folding cannot do.
+    As stated — "a satisfiable TBox has a lasso model" — this is trivially true,
+    for a reason that is itself a finding about the logic: LTEL has **no ⊥ and
+    no negation**, so *every* TBox is satisfiable (`every_tbox_satisfiable`),
+    and the constant total interpretation is a lasso model of everything.  The
+    satisfiability phrasing of the small-model property therefore carries no
+    information in this fragment.
 
-    2. *□ and 𝒰 break the substitution lemma.*  `foldLasso_ext` proves
-       `ext (fold) C t d ↔ ext I C (L.time t) d` for box/until-free `C`.  For `□C`
-       it is **false**: `ext (□C)` quantifies over the infinite future, while the
-       fold quantifies only over the bounded loop, so an eventuality fulfilled
-       outside the loop is lost.  Adding □/𝒰 therefore requires the eventuality-
-       fulfilment construction (a fold point realising every pending eventuality
-       within one period) — the temporal-EL decidability proof — not a fold.
-
-    What *is* proved sorry-free: `exists_repeat` (pigeonhole), `time_succ`
-    (Next commutes with folding), `foldLasso_isLassoPeriodic`, `foldLasso_ext`
-    (substitution on the eventuality-free fragment), and
-    `foldLasso_preserves_models` (the conditional small-model step).
-    For rigid concepts the lasso length is at most 2^|CN| + 1. -/
-theorem l3_small_model_rigid (T : TBox) (h : satisfiable T) :
-    ∃ (L : Lasso) (Δ : Type) (I : TemporalInterp Δ),
-      models I T ∧ IsLassoPeriodic I L := by
-  obtain ⟨Δ, I, hI⟩ := h
-  -- Reduced (see note): need a GoodLoop + eventuality-fulfilment to invoke
-  -- `foldLasso_preserves_models` and `foldLasso_isLassoPeriodic`.
-  sorry
-
-/-- For the full non-rigid fragment a lasso model still exists (satisfiability
-    is equivalent to lasso-satisfiability), but the lasso length may be
-    non-elementarily large.  The complexity is NEXPTIME-hard (Borgwardt-Thost). -/
-theorem l3_small_model_nonrigid (T : TBox) (h : satisfiable T) :
+    The **informative** small-model property is about *countermodels to
+    non-entailed subsumptions*: if `¬ entails T C D`, is there a *lasso*
+    countermodel?  That statement (`LassoCountermodelProperty`, see
+    Conjectures.lean) is the genuine quasimodel construction and remains open;
+    the fold machinery above (`exists_repeat`, `foldLasso`, `foldLasso_ext`,
+    `foldLasso_preserves_models`) is the proven part of its toolkit, and the
+    two obstructions documented there (folding cannot manufacture periodicity;
+    □/𝒰 break the substitution lemma) are why it needs the full
+    type/quasimodel unravelling. -/
+theorem l3_small_model_rigid (T : TBox) (_h : satisfiable T) :
     ∃ (L : Lasso) (Δ : Type) (I : TemporalInterp Δ),
       models I T ∧ IsLassoPeriodic I L :=
-  sorry
+  ⟨Lasso.trivial, Unit, totalInterp, totalInterp_models T, totalInterp_isLassoPeriodic⟩
+
+/-- Non-rigid case of the satisfiability phrasing: same triviality (the total
+    interpretation is in particular rigid, hence also a non-rigid model). -/
+theorem l3_small_model_nonrigid (T : TBox) (_h : satisfiable T) :
+    ∃ (L : Lasso) (Δ : Type) (I : TemporalInterp Δ),
+      models I T ∧ IsLassoPeriodic I L :=
+  ⟨Lasso.trivial, Unit, totalInterp, totalInterp_models T, totalInterp_isLassoPeriodic⟩

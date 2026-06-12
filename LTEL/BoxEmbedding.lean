@@ -59,3 +59,25 @@ def ZeroLossGCI {B Δ : Type} [BoxAlgebra B Δ]
 def ZeroLoss {B Δ : Type} [BoxAlgebra B Δ]
     (emb : TemporalBoxEmb B Δ) (T : TBox) : Prop :=
   ∀ ax ∈ T, ZeroLossGCI emb ax
+
+/-! ## The canonical (powerset) box model
+
+    Boxes = arbitrary subsets of Δ.  This instance witnesses that the abstract
+    interface is inhabited, and (Faithfulness.lean) that **every** temporal
+    interpretation is exactly representable as a zero-loss embedding — the
+    substantive content of T2's forward direction. -/
+
+instance powersetBoxAlgebra (Δ : Type) : BoxAlgebra (Δ → Prop) Δ where
+  le b₁ b₂ := ∀ d, b₁ d → b₂ d
+  meet b₁ b₂ := fun d => b₁ d ∧ b₂ d
+  carrier b := b
+  top := fun _ => True
+  top_carrier := fun _ => trivial
+  le_carrier := fun _ _ h => h
+  meet_carrier := fun _ _ _ => Iff.rfl
+
+/-- The canonical embedding of an interpretation: each concept name's box at
+    time t is its exact extension; the role carrier is the rigid role. -/
+def canonicalEmb {Δ : Type} (I : TemporalInterp Δ) : TemporalBoxEmb (Δ → Prop) Δ where
+  conceptBox A t := (I.snapshot t).concept A
+  roleCarrier := I.role

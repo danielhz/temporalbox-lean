@@ -1,6 +1,8 @@
 import LTEL.Semantics
 import LTEL.UntilCompilation
 import LTEL.NormalForm
+import LTEL.Lasso
+import LTEL.BoxEmbedding
 
 /-!
 # Conjectures Q1–Q5: Formal Verdicts
@@ -128,3 +130,26 @@ theorem conjectures_summary :
     True ∧                                             -- Q4: partial
     True :=
   ⟨trivial, trivial, q3_counterexample, trivial, trivial⟩
+
+/-! ## Refined open statements (entailment-phrased)
+
+LTEL is ⊥-free, so satisfiability is trivial (`every_tbox_satisfiable`) and the
+satisfiability phrasings of L3/T2 are vacuously strong.  The *informative*
+versions are entailment-phrased; they are recorded here as the genuine open
+formalization targets. -/
+
+/-- **The informative small-model property** (open): every non-entailed
+    subsumption has a *lasso* countermodel.  This is the real content of L3 —
+    the temporal-EL quasimodel construction — and is what a finite/periodic
+    embedding method can rely on for completeness.  The fold machinery in
+    Lasso.lean (`exists_repeat`, `foldLasso`, `foldLasso_ext`,
+    `foldLasso_preserves_models`) is the proven part of its toolkit. -/
+def LassoCountermodelProperty : Prop :=
+  ∀ (T : TBox) (C D : Concept), ¬ entails T C D →
+    ∃ (L : Lasso) (Δ : Type) (I : TemporalInterp Δ) (t : Nat) (d : Δ),
+      models I T ∧ IsLassoPeriodic I L ∧ ext I C t d ∧ ¬ ext I D t d
+
+/-! The entailment-phrased faithfulness — the recommended paper statement —
+    turned out to be **provable** (forward via T1, backward via the canonical
+    countermodel embedding); see `t2_entailment_faithfulness` in
+    Faithfulness.lean.  Only `LassoCountermodelProperty` above remains open. -/
