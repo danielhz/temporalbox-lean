@@ -41,6 +41,60 @@ def ELAxiom : Axiom → Prop
 /-- A TBox of the EL fragment. -/
 def ELTBox (T : TBox) : Prop := ∀ ax ∈ T, ELAxiom ax
 
+/-! ## The polarity fragment (full LTEL L1)
+
+    Left (negative) sides admit {⊤, names, ⊓, ∃r, ○, 𝒰} — hence also ◇ = ⊤𝒰·;
+    right (positive) sides admit {⊤, names, ⊓, ∃r, ○, □}.  Right-side 𝒰/◇ are
+    excluded: provably unsound to box (Q3).  Left-side □ is excluded: it has no
+    NF shape.  All admitted operators are monotone, so one-sided naming is sound
+    in the matching polarity. -/
+
+/-- Concepts admissible on the LEFT (negative) side. -/
+inductive NegConcept : Concept → Prop where
+  | top  : NegConcept .top
+  | name : NegConcept (.name A)
+  | meet : NegConcept C → NegConcept D → NegConcept (.meet C D)
+  | some : NegConcept C → NegConcept (.some r C)
+  | next : NegConcept C → NegConcept (.next C)
+  | luntil : NegConcept C → NegConcept D → NegConcept (.luntil C D)
+
+/-- Concepts admissible on the RIGHT (positive) side. -/
+inductive PosConcept : Concept → Prop where
+  | top  : PosConcept .top
+  | name : PosConcept (.name A)
+  | meet : PosConcept C → PosConcept D → PosConcept (.meet C D)
+  | some : PosConcept C → PosConcept (.some r C)
+  | next : PosConcept C → PosConcept (.next C)
+  | globally : PosConcept C → PosConcept (.globally C)
+
+/-- An axiom of the polarity fragment. -/
+def PolarityAxiom : Axiom → Prop
+  | .gci C D  => NegConcept C ∧ PosConcept D
+  | .ri _ _ _ => True
+
+/-- A TBox of the polarity fragment. -/
+def PolarityTBox (T : TBox) : Prop := ∀ ax ∈ T, PolarityAxiom ax
+
+/-- EL concepts sit inside both polarities. -/
+theorem ELConcept.neg {C : Concept} (h : ELConcept C) : NegConcept C := by
+  induction h with
+  | name => exact NegConcept.name
+  | meet _ _ ihC ihD => exact NegConcept.meet ihC ihD
+  | some _ ihC => exact NegConcept.some ihC
+
+theorem ELConcept.pos {C : Concept} (h : ELConcept C) : PosConcept C := by
+  induction h with
+  | name => exact PosConcept.name
+  | meet _ _ ihC ihD => exact PosConcept.meet ihC ihD
+  | some _ ihC => exact PosConcept.some ihC
+
+theorem ELTBox.polarity {T : TBox} (h : ELTBox T) : PolarityTBox T := by
+  intro ax hax
+  have hEL := h ax hax
+  cases ax with
+  | gci C D => exact ⟨hEL.1.neg, hEL.2.pos⟩
+  | ri r s u => trivial
+
 /-! ## Name bounds -/
 
 /-- All names mentioned in `C` are `< n`.
@@ -236,10 +290,17 @@ def flattenL : Concept → Nat → FlatRes
   | .some r C, n =>
       let f := flattenL C n
       ⟨f.next, f.axs ++ [.gci (.some r (.name f.atom)) (.name f.next)], f.next + 1⟩
-  | .top, n => ⟨n, [], n + 1⟩
-  | .next _, n => ⟨n, [], n + 1⟩
-  | .luntil _ _, n => ⟨n, [], n + 1⟩
-  | .globally _, n => ⟨n, [], n + 1⟩
+  | .top, n => ⟨n, [.gci .top (.name n)], n + 1⟩
+  | .next C, n =>
+      let f := flattenL C n
+      ⟨f.next, f.axs ++ [.gci (.next (.name f.atom)) (.name f.next)], f.next + 1⟩
+  | .luntil C D, n =>
+      let f := flattenL C n
+      let g := flattenL D f.next
+      ⟨g.next,
+       f.axs ++ g.axs ++ [.gci (.luntil (.name f.atom) (.name g.atom)) (.name g.next)],
+       g.next + 1⟩
+  | .globally _, n => ⟨n, [], n + 1⟩   -- left-□ not in the polarity fragment: junk
 
 /-- Flatten a **right-hand** (positive) occurrence: axioms entail `atom ⊑ C`. -/
 def flattenR : Concept → Nat → FlatRes
@@ -254,10 +315,14 @@ def flattenR : Concept → Nat → FlatRes
   | .some r C, n =>
       let f := flattenR C n
       ⟨f.next, f.axs ++ [.gci (.name f.next) (.some r (.name f.atom))], f.next + 1⟩
-  | .top, n => ⟨n, [], n + 1⟩
-  | .next _, n => ⟨n, [], n + 1⟩
-  | .luntil _ _, n => ⟨n, [], n + 1⟩
-  | .globally _, n => ⟨n, [], n + 1⟩
+  | .top, n => ⟨n, [], n + 1⟩           -- atom ⊑ ⊤ holds vacuously: no axiom needed
+  | .next C, n =>
+      let f := flattenR C n
+      ⟨f.next, f.axs ++ [.gci (.name f.next) (.next (.name f.atom))], f.next + 1⟩
+  | .luntil _ _, n => ⟨n, [], n + 1⟩    -- right-𝒰/◇ unsound (Q3): junk
+  | .globally C, n =>
+      let f := flattenR C n
+      ⟨f.next, f.axs ++ [.gci (.name f.next) (.globally (.name f.atom))], f.next + 1⟩
 
 /-! ### Counter and name-bound bookkeeping -/
 
@@ -276,8 +341,17 @@ theorem flattenL_le (C : Concept) : ∀ n, n ≤ (flattenL C n).next := by
       have h1 := ihC n
       omega
   | top => intro n; simp only [flattenL]; omega
-  | next C _ => intro n; simp only [flattenL]; omega
-  | luntil C D _ _ => intro n; simp only [flattenL]; omega
+  | next C ihC =>
+      intro n
+      simp only [flattenL]
+      have h1 := ihC n
+      omega
+  | luntil C D ihC ihD =>
+      intro n
+      simp only [flattenL]
+      have h1 := ihC n
+      have h2 := ihD (flattenL C n).next
+      omega
   | globally C _ => intro n; simp only [flattenL]; omega
 
 theorem flattenR_le (C : Concept) : ∀ n, n ≤ (flattenR C n).next := by
@@ -295,9 +369,17 @@ theorem flattenR_le (C : Concept) : ∀ n, n ≤ (flattenR C n).next := by
       have h1 := ihC n
       omega
   | top => intro n; simp only [flattenR]; omega
-  | next C _ => intro n; simp only [flattenR]; omega
+  | next C ihC =>
+      intro n
+      simp only [flattenR]
+      have h1 := ihC n
+      omega
   | luntil C D _ _ => intro n; simp only [flattenR]; omega
-  | globally C _ => intro n; simp only [flattenR]; omega
+  | globally C ihC =>
+      intro n
+      simp only [flattenR]
+      have h1 := ihC n
+      omega
 
 theorem flattenL_atom_lt (C : Concept) :
     ∀ n, C.namesBelow n → (flattenL C n).atom < (flattenL C n).next := by
@@ -358,10 +440,47 @@ theorem flattenL_axs_below (C : Concept) :
         refine ⟨fun b hb => ?_, fun b hb => ?_⟩
         · simp only [Concept.mentions] at hb; subst hb; omega
         · simp only [Concept.mentions] at hb; subst hb; omega
-  | top => intro n h ax hax; simp only [flattenL] at hax; exact absurd hax (List.not_mem_nil)
-  | next C _ => intro n h ax hax; simp only [flattenL] at hax; exact absurd hax (List.not_mem_nil)
-  | luntil C D _ _ =>
-      intro n h ax hax; simp only [flattenL] at hax; exact absurd hax (List.not_mem_nil)
+  | top =>
+      intro n h ax hax
+      simp only [flattenL, List.mem_singleton] at hax ⊢
+      subst hax
+      refine ⟨fun b hb => ?_, fun b hb => ?_⟩
+      · simp only [Concept.mentions] at hb
+      · simp only [Concept.mentions] at hb; subst hb; omega
+  | next C ihC =>
+      intro n h ax hax
+      have hCb : C.namesBelow n := fun b hb => h b hb
+      have haC := flattenL_atom_lt C n hCb
+      have hle1 := flattenL_le C n
+      simp only [flattenL] at hax ⊢
+      rcases List.mem_append.mp hax with hax | hax
+      · exact Axiom.namesBelow.mono (ihC n hCb ax hax) (by omega)
+      · simp only [List.mem_singleton] at hax
+        subst hax
+        refine ⟨fun b hb => ?_, fun b hb => ?_⟩
+        · simp only [Concept.mentions] at hb; subst hb; omega
+        · simp only [Concept.mentions] at hb; subst hb; omega
+  | luntil C D ihC ihD =>
+      intro n h ax hax
+      have hC : C.namesBelow n := fun b hb => h b (Or.inl hb)
+      have hD : D.namesBelow (flattenL C n).next :=
+        Concept.namesBelow.mono (fun b hb => h b (Or.inr hb)) (flattenL_le C n)
+      have haC := flattenL_atom_lt C n hC
+      have haD := flattenL_atom_lt D (flattenL C n).next hD
+      have hle1 := flattenL_le C n
+      have hle2 := flattenL_le D (flattenL C n).next
+      simp only [flattenL] at hax ⊢
+      rcases List.mem_append.mp hax with hax | hax
+      · rcases List.mem_append.mp hax with hax | hax
+        · exact Axiom.namesBelow.mono (ihC n hC ax hax) (by omega)
+        · exact Axiom.namesBelow.mono (ihD (flattenL C n).next hD ax hax) (by omega)
+      · simp only [List.mem_singleton] at hax
+        subst hax
+        refine ⟨fun b hb => ?_, fun b hb => ?_⟩
+        · rcases hb with hb | hb
+          · simp only [Concept.mentions] at hb; subst hb; omega
+          · simp only [Concept.mentions] at hb; subst hb; omega
+        · simp only [Concept.mentions] at hb; subst hb; omega
   | globally C _ =>
       intro n h ax hax; simp only [flattenL] at hax; exact absurd hax (List.not_mem_nil)
 
@@ -406,11 +525,34 @@ theorem flattenR_axs_below (C : Concept) :
         · simp only [Concept.mentions] at hb; subst hb; omega
         · simp only [Concept.mentions] at hb; subst hb; omega
   | top => intro n h ax hax; simp only [flattenR] at hax; exact absurd hax (List.not_mem_nil)
-  | next C _ => intro n h ax hax; simp only [flattenR] at hax; exact absurd hax (List.not_mem_nil)
+  | next C ihC =>
+      intro n h ax hax
+      have hCb : C.namesBelow n := fun b hb => h b hb
+      have haC := flattenR_atom_lt C n hCb
+      have hle1 := flattenR_le C n
+      simp only [flattenR] at hax ⊢
+      rcases List.mem_append.mp hax with hax | hax
+      · exact Axiom.namesBelow.mono (ihC n hCb ax hax) (by omega)
+      · simp only [List.mem_singleton] at hax
+        subst hax
+        refine ⟨fun b hb => ?_, fun b hb => ?_⟩
+        · simp only [Concept.mentions] at hb; subst hb; omega
+        · simp only [Concept.mentions] at hb; subst hb; omega
   | luntil C D _ _ =>
       intro n h ax hax; simp only [flattenR] at hax; exact absurd hax (List.not_mem_nil)
-  | globally C _ =>
-      intro n h ax hax; simp only [flattenR] at hax; exact absurd hax (List.not_mem_nil)
+  | globally C ihC =>
+      intro n h ax hax
+      have hCb : C.namesBelow n := fun b hb => h b hb
+      have haC := flattenR_atom_lt C n hCb
+      have hle1 := flattenR_le C n
+      simp only [flattenR] at hax ⊢
+      rcases List.mem_append.mp hax with hax | hax
+      · exact Axiom.namesBelow.mono (ihC n hCb ax hax) (by omega)
+      · simp only [List.mem_singleton] at hax
+        subst hax
+        refine ⟨fun b hb => ?_, fun b hb => ?_⟩
+        · simp only [Concept.mentions] at hb; subst hb; omega
+        · simp only [Concept.mentions] at hb; subst hb; omega
 
 /-! ### NF shapes -/
 
@@ -418,9 +560,32 @@ theorem flattenR_axs_below (C : Concept) :
 def NFAxiom (ax : Axiom) : Prop :=
   (∃ C D, ax = .gci C D ∧ LhsNF C ∧ RhsNF D) ∨ ∃ r s u, ax = .ri r s u
 
-theorem flattenL_nf {C : Concept} (hEL : ELConcept C) :
+theorem flattenL_nf {C : Concept} (hEL : NegConcept C) :
     ∀ n, ∀ ax ∈ (flattenL C n).axs, NFAxiom ax := by
   induction hEL with
+  | top =>
+      intro n ax hax
+      simp only [flattenL, List.mem_singleton] at hax
+      subst hax
+      exact Or.inl ⟨_, _, rfl, LhsNF.top, RhsNF.name⟩
+  | @next C _ ihC =>
+      intro n ax hax
+      simp only [flattenL] at hax
+      rcases List.mem_append.mp hax with hax | hax
+      · exact ihC n ax hax
+      · simp only [List.mem_singleton] at hax
+        subst hax
+        exact Or.inl ⟨_, _, rfl, LhsNF.next LhsNF.name, RhsNF.name⟩
+  | @luntil C D _ _ ihC ihD =>
+      intro n ax hax
+      simp only [flattenL] at hax
+      rcases List.mem_append.mp hax with hax | hax
+      · rcases List.mem_append.mp hax with hax | hax
+        · exact ihC n ax hax
+        · exact ihD (flattenL C n).next ax hax
+      · simp only [List.mem_singleton] at hax
+        subst hax
+        exact Or.inl ⟨_, _, rfl, LhsNF.luntil LhsNF.name LhsNF.name, RhsNF.name⟩
   | name => intro n ax hax; simp only [flattenL] at hax; exact absurd hax (List.not_mem_nil)
   | @meet C D _ _ ihC ihD =>
       intro n ax hax
@@ -441,9 +606,26 @@ theorem flattenL_nf {C : Concept} (hEL : ELConcept C) :
         subst hax
         exact Or.inl ⟨_, _, rfl, LhsNF.some LhsNF.name, RhsNF.name⟩
 
-theorem flattenR_nf {C : Concept} (hEL : ELConcept C) :
+theorem flattenR_nf {C : Concept} (hEL : PosConcept C) :
     ∀ n, ∀ ax ∈ (flattenR C n).axs, NFAxiom ax := by
   induction hEL with
+  | top => intro n ax hax; simp only [flattenR] at hax; exact absurd hax (List.not_mem_nil)
+  | @next C _ ihC =>
+      intro n ax hax
+      simp only [flattenR] at hax
+      rcases List.mem_append.mp hax with hax | hax
+      · exact ihC n ax hax
+      · simp only [List.mem_singleton] at hax
+        subst hax
+        exact Or.inl ⟨_, _, rfl, LhsNF.name, RhsNF.next RhsNF.name⟩
+  | @globally C _ ihC =>
+      intro n ax hax
+      simp only [flattenR] at hax
+      rcases List.mem_append.mp hax with hax | hax
+      · exact ihC n ax hax
+      · simp only [List.mem_singleton] at hax
+        subst hax
+        exact Or.inl ⟨_, _, rfl, LhsNF.name, RhsNF.glob RhsNF.name⟩
   | name => intro n ax hax; simp only [flattenR] at hax; exact absurd hax (List.not_mem_nil)
   | @meet C D _ _ ihC ihD =>
       intro n ax hax
@@ -467,10 +649,30 @@ theorem flattenR_nf {C : Concept} (hEL : ELConcept C) :
 
 /-! ### Soundness: models of the emitted axioms satisfy the represented inclusion -/
 
-theorem flattenL_sound {C : Concept} (hEL : ELConcept C) (I : TemporalInterp Δ) :
+theorem flattenL_sound {C : Concept} (hEL : NegConcept C) (I : TemporalInterp Δ) :
     ∀ n, models I (flattenL C n).axs →
       ∀ t d, ext I C t d → ext I (.name (flattenL C n).atom) t d := by
   induction hEL with
+  | top =>
+      intro n hm t d _
+      simp only [flattenL] at hm ⊢
+      exact (hm _ (List.mem_singleton.mpr rfl)) t d trivial
+  | @next C _ ihC =>
+      intro n hm t d hext
+      simp only [flattenL] at hm ⊢
+      rw [models_append] at hm
+      obtain ⟨hmf, hmax⟩ := hm
+      have h1 := ihC n hmf (t + 1) d hext
+      exact (hmax _ (List.mem_singleton.mpr rfl)) t d h1
+  | @luntil C D _ _ ihC ihD =>
+      intro n hm t d hext
+      simp only [flattenL] at hm ⊢
+      rw [models_append, models_append] at hm
+      obtain ⟨⟨hmf, hmg⟩, hmax⟩ := hm
+      obtain ⟨t', ht', hD, hC⟩ := hext
+      refine (hmax _ (List.mem_singleton.mpr rfl)) t d ?_
+      exact ⟨t', ht', ihD (flattenL C n).next hmg t' d hD,
+             fun t'' h1 h2 => ihC n hmf t'' d (hC t'' h1 h2)⟩
   | @name b =>
       intro n _ t d h
       simp only [flattenL]
@@ -492,10 +694,28 @@ theorem flattenL_sound {C : Concept} (hEL : ELConcept C) (I : TemporalInterp Δ)
       obtain ⟨e, hr, he⟩ := hext
       exact (hmax _ (List.mem_singleton.mpr rfl)) t d ⟨e, hr, ihC n hmf t e he⟩
 
-theorem flattenR_sound {C : Concept} (hEL : ELConcept C) (I : TemporalInterp Δ) :
+theorem flattenR_sound {C : Concept} (hEL : PosConcept C) (I : TemporalInterp Δ) :
     ∀ n, models I (flattenR C n).axs →
       ∀ t d, ext I (.name (flattenR C n).atom) t d → ext I C t d := by
   induction hEL with
+  | top =>
+      intro n _ t d _
+      exact trivial
+  | @next C _ ihC =>
+      intro n hm t d hat
+      simp only [flattenR] at hm hat
+      rw [models_append] at hm
+      obtain ⟨hmf, hmax⟩ := hm
+      have h1 := (hmax _ (List.mem_singleton.mpr rfl)) t d hat
+      exact ihC n hmf (t + 1) d h1
+  | @globally C _ ihC =>
+      intro n hm t d hat
+      simp only [flattenR] at hm hat
+      rw [models_append] at hm
+      obtain ⟨hmf, hmax⟩ := hm
+      have h1 := (hmax _ (List.mem_singleton.mpr rfl)) t d hat
+      intro t' ht'
+      exact ihC n hmf t' d (h1 t' ht')
   | @name b =>
       intro n _ t d h
       simp only [flattenR] at h
@@ -522,13 +742,139 @@ theorem flattenR_sound {C : Concept} (hEL : ELConcept C) (I : TemporalInterp Δ)
     they name (iterated `defineInterp`), so every emitted axiom holds with
     equality and the original interpretation is untouched below `n`. -/
 
-theorem flattenL_complete {C : Concept} (hEL : ELConcept C) :
+theorem flattenL_complete {C : Concept} (hEL : NegConcept C) :
     ∀ n (I : TemporalInterp Δ), C.namesBelow n →
       ∃ I' : TemporalInterp Δ,
         AgreeBelow I I' n ∧
         models I' (flattenL C n).axs ∧
         (∀ t d, ext I' (.name (flattenL C n).atom) t d ↔ ext I' C t d) := by
   induction hEL with
+  | top =>
+      intro n I _
+      have hEm : ¬ (Concept.top).mentions n := fun hm => hm
+      have hagD : AgreeBelow I (defineInterp I n Concept.top) n :=
+        agree_defineInterp I n Concept.top (Nat.le_refl n)
+      have hdef := defineInterp_def_holds I n Concept.top hEm
+      refine ⟨defineInterp I n Concept.top, hagD, ?_, ?_⟩
+      · intro ax hax
+        simp only [flattenL, List.mem_singleton] at hax
+        subst hax
+        exact hdef.2
+      · intro t d
+        simp only [flattenL]
+        exact ⟨fun hh => hdef.1 t d hh, fun hh => hdef.2 t d hh⟩
+  | @next C _ ihC =>
+      intro n I h
+      have hCb : C.namesBelow n := fun b hb => h b hb
+      obtain ⟨I₁, hag₁, hm₁, hat₁⟩ := ihC n I hCb
+      have hnn1 := flattenL_le C n
+      have haC := flattenL_atom_lt C n hCb
+      have hCb1 : C.namesBelow (flattenL C n).next := hCb.mono hnn1
+      have hsb1 : (Concept.next C).namesBelow (flattenL C n).next :=
+        fun b hb => hCb1 b hb
+      have hEm : ¬ (Concept.next C).mentions (flattenL C n).next :=
+        not_mentions_of_namesBelow hsb1 (Nat.le_refl _)
+      have hagD : AgreeBelow I₁
+          (defineInterp I₁ (flattenL C n).next (Concept.next C)) (flattenL C n).next :=
+        agree_defineInterp I₁ _ _ (Nat.le_refl _)
+      have hdef := defineInterp_def_holds I₁ (flattenL C n).next (Concept.next C) hEm
+      have hnameC1 : (Concept.name (flattenL C n).atom).namesBelow (flattenL C n).next := by
+        intro b hb; simp only [Concept.mentions] at hb; subst hb; omega
+      have hat₁' : ∀ t d,
+          ext (defineInterp I₁ (flattenL C n).next (Concept.next C))
+            (.name (flattenL C n).atom) t d ↔
+          ext (defineInterp I₁ (flattenL C n).next (Concept.next C)) C t d := by
+        intro t d
+        rw [ext_agree hagD _ hnameC1 t d, ext_agree hagD C hCb1 t d]
+        exact hat₁ t d
+      refine ⟨defineInterp I₁ (flattenL C n).next (Concept.next C), ?_, ?_, ?_⟩
+      · exact hag₁.chain hagD hnn1
+      · simp only [flattenL]
+        rw [models_append]
+        refine ⟨?_, ?_⟩
+        · rw [models_agree hagD (flattenL_axs_below C n hCb)]
+          exact hm₁
+        · intro ax hax
+          simp only [List.mem_singleton] at hax
+          subst hax
+          intro t d hnext
+          exact hdef.2 t d ((hat₁' (t + 1) d).mp hnext)
+      · intro t d
+        simp only [flattenL]
+        exact ⟨fun hh => hdef.1 t d hh, fun hh => hdef.2 t d hh⟩
+  | @luntil C D _ _ ihC ihD =>
+      intro n I h
+      have hCb : C.namesBelow n := fun b hb => h b (Or.inl hb)
+      have hDb : D.namesBelow n := fun b hb => h b (Or.inr hb)
+      have hnn1 : n ≤ (flattenL C n).next := flattenL_le C n
+      have hDb1 : D.namesBelow (flattenL C n).next := hDb.mono hnn1
+      obtain ⟨I₁, hag₁, hm₁, hat₁⟩ := ihC n I hCb
+      obtain ⟨I₂, hag₂, hm₂, hat₂⟩ := ihD (flattenL C n).next I₁ hDb1
+      have hn12 := flattenL_le D (flattenL C n).next
+      have haC := flattenL_atom_lt C n hCb
+      have haD := flattenL_atom_lt D (flattenL C n).next hDb1
+      have hCb1 : C.namesBelow (flattenL C n).next := hCb.mono hnn1
+      have hCb2 : C.namesBelow (flattenL D (flattenL C n).next).next := hCb1.mono hn12
+      have hDb2 : D.namesBelow (flattenL D (flattenL C n).next).next := hDb1.mono hn12
+      have huntb : (Concept.luntil C D).namesBelow (flattenL D (flattenL C n).next).next := by
+        intro b hb
+        rcases hb with hb | hb
+        · exact hCb2 b hb
+        · exact hDb2 b hb
+      have hEm : ¬ (Concept.luntil C D).mentions (flattenL D (flattenL C n).next).next :=
+        not_mentions_of_namesBelow huntb (Nat.le_refl _)
+      have hagD : AgreeBelow I₂
+          (defineInterp I₂ (flattenL D (flattenL C n).next).next (Concept.luntil C D))
+          (flattenL D (flattenL C n).next).next :=
+        agree_defineInterp I₂ _ _ (Nat.le_refl _)
+      have hdef := defineInterp_def_holds I₂ (flattenL D (flattenL C n).next).next
+        (Concept.luntil C D) hEm
+      have hnameC1 : (Concept.name (flattenL C n).atom).namesBelow (flattenL C n).next := by
+        intro b hb; simp only [Concept.mentions] at hb; subst hb; omega
+      have hnameC2 : (Concept.name (flattenL C n).atom).namesBelow
+          (flattenL D (flattenL C n).next).next := by
+        intro b hb; simp only [Concept.mentions] at hb; subst hb; omega
+      have hnameD2 : (Concept.name (flattenL D (flattenL C n).next).atom).namesBelow
+          (flattenL D (flattenL C n).next).next := by
+        intro b hb; simp only [Concept.mentions] at hb; subst hb; omega
+      have hat₁' : ∀ t d,
+          ext (defineInterp I₂ (flattenL D (flattenL C n).next).next (Concept.luntil C D))
+            (.name (flattenL C n).atom) t d ↔
+          ext (defineInterp I₂ (flattenL D (flattenL C n).next).next (Concept.luntil C D))
+            C t d := by
+        intro t d
+        rw [ext_agree hagD _ hnameC2 t d, ext_agree hagD C hCb2 t d,
+            ext_agree hag₂ _ hnameC1 t d, ext_agree hag₂ C hCb1 t d]
+        exact hat₁ t d
+      have hat₂' : ∀ t d,
+          ext (defineInterp I₂ (flattenL D (flattenL C n).next).next (Concept.luntil C D))
+            (.name (flattenL D (flattenL C n).next).atom) t d ↔
+          ext (defineInterp I₂ (flattenL D (flattenL C n).next).next (Concept.luntil C D))
+            D t d := by
+        intro t d
+        rw [ext_agree hagD _ hnameD2 t d, ext_agree hagD D hDb2 t d]
+        exact hat₂ t d
+      refine ⟨defineInterp I₂ (flattenL D (flattenL C n).next).next (Concept.luntil C D),
+              ?_, ?_, ?_⟩
+      · exact (hag₁.chain hag₂ hnn1).chain hagD (Nat.le_trans hnn1 hn12)
+      · simp only [flattenL]
+        rw [models_append, models_append]
+        refine ⟨⟨?_, ?_⟩, ?_⟩
+        · rw [models_agree hagD ((flattenL_axs_below C n hCb).mono hn12),
+              models_agree hag₂ (flattenL_axs_below C n hCb)]
+          exact hm₁
+        · rw [models_agree hagD (flattenL_axs_below D (flattenL C n).next hDb1)]
+          exact hm₂
+        · intro ax hax
+          simp only [List.mem_singleton] at hax
+          subst hax
+          intro t d hu
+          obtain ⟨t', ht', hDt, hCt⟩ := hu
+          exact hdef.2 t d ⟨t', ht', (hat₂' t' d).mp hDt,
+                            fun t'' h1 h2 => (hat₁' t'' d).mp (hCt t'' h1 h2)⟩
+      · intro t d
+        simp only [flattenL]
+        exact ⟨fun hh => hdef.1 t d hh, fun hh => hdef.2 t d hh⟩
   | @name b =>
       intro n I _
       refine ⟨I, AgreeBelow.rfl I n, ?_, ?_⟩
@@ -650,13 +996,104 @@ theorem flattenL_complete {C : Concept} (hEL : ELConcept C) :
         simp only [flattenL]
         exact ⟨fun hh => hdef.1 t d hh, fun hh => hdef.2 t d hh⟩
 
-theorem flattenR_complete {C : Concept} (hEL : ELConcept C) :
+theorem flattenR_complete {C : Concept} (hEL : PosConcept C) :
     ∀ n (I : TemporalInterp Δ), C.namesBelow n →
       ∃ I' : TemporalInterp Δ,
         AgreeBelow I I' n ∧
         models I' (flattenR C n).axs ∧
         (∀ t d, ext I' (.name (flattenR C n).atom) t d ↔ ext I' C t d) := by
   induction hEL with
+  | top =>
+      intro n I _
+      have hEm : ¬ (Concept.top).mentions n := fun hm => hm
+      have hagD : AgreeBelow I (defineInterp I n Concept.top) n :=
+        agree_defineInterp I n Concept.top (Nat.le_refl n)
+      have hdef := defineInterp_def_holds I n Concept.top hEm
+      refine ⟨defineInterp I n Concept.top, hagD, ?_, ?_⟩
+      · intro ax hax
+        simp only [flattenR] at hax
+        exact absurd hax (List.not_mem_nil)
+      · intro t d
+        simp only [flattenR]
+        exact ⟨fun hh => hdef.1 t d hh, fun hh => hdef.2 t d hh⟩
+  | @next C _ ihC =>
+      intro n I h
+      have hCb : C.namesBelow n := fun b hb => h b hb
+      obtain ⟨I₁, hag₁, hm₁, hat₁⟩ := ihC n I hCb
+      have hnn1 := flattenR_le C n
+      have haC := flattenR_atom_lt C n hCb
+      have hCb1 : C.namesBelow (flattenR C n).next := hCb.mono hnn1
+      have hsb1 : (Concept.next C).namesBelow (flattenR C n).next :=
+        fun b hb => hCb1 b hb
+      have hEm : ¬ (Concept.next C).mentions (flattenR C n).next :=
+        not_mentions_of_namesBelow hsb1 (Nat.le_refl _)
+      have hagD : AgreeBelow I₁
+          (defineInterp I₁ (flattenR C n).next (Concept.next C)) (flattenR C n).next :=
+        agree_defineInterp I₁ _ _ (Nat.le_refl _)
+      have hdef := defineInterp_def_holds I₁ (flattenR C n).next (Concept.next C) hEm
+      have hnameC1 : (Concept.name (flattenR C n).atom).namesBelow (flattenR C n).next := by
+        intro b hb; simp only [Concept.mentions] at hb; subst hb; omega
+      have hat₁' : ∀ t d,
+          ext (defineInterp I₁ (flattenR C n).next (Concept.next C))
+            (.name (flattenR C n).atom) t d ↔
+          ext (defineInterp I₁ (flattenR C n).next (Concept.next C)) C t d := by
+        intro t d
+        rw [ext_agree hagD _ hnameC1 t d, ext_agree hagD C hCb1 t d]
+        exact hat₁ t d
+      refine ⟨defineInterp I₁ (flattenR C n).next (Concept.next C), ?_, ?_, ?_⟩
+      · exact hag₁.chain hagD hnn1
+      · simp only [flattenR]
+        rw [models_append]
+        refine ⟨?_, ?_⟩
+        · rw [models_agree hagD (flattenR_axs_below C n hCb)]
+          exact hm₁
+        · intro ax hax
+          simp only [List.mem_singleton] at hax
+          subst hax
+          intro t d hat
+          exact (hat₁' (t + 1) d).mpr (hdef.1 t d hat)
+      · intro t d
+        simp only [flattenR]
+        exact ⟨fun hh => hdef.1 t d hh, fun hh => hdef.2 t d hh⟩
+  | @globally C _ ihC =>
+      intro n I h
+      have hCb : C.namesBelow n := fun b hb => h b hb
+      obtain ⟨I₁, hag₁, hm₁, hat₁⟩ := ihC n I hCb
+      have hnn1 := flattenR_le C n
+      have haC := flattenR_atom_lt C n hCb
+      have hCb1 : C.namesBelow (flattenR C n).next := hCb.mono hnn1
+      have hsb1 : (Concept.globally C).namesBelow (flattenR C n).next :=
+        fun b hb => hCb1 b hb
+      have hEm : ¬ (Concept.globally C).mentions (flattenR C n).next :=
+        not_mentions_of_namesBelow hsb1 (Nat.le_refl _)
+      have hagD : AgreeBelow I₁
+          (defineInterp I₁ (flattenR C n).next (Concept.globally C)) (flattenR C n).next :=
+        agree_defineInterp I₁ _ _ (Nat.le_refl _)
+      have hdef := defineInterp_def_holds I₁ (flattenR C n).next (Concept.globally C) hEm
+      have hnameC1 : (Concept.name (flattenR C n).atom).namesBelow (flattenR C n).next := by
+        intro b hb; simp only [Concept.mentions] at hb; subst hb; omega
+      have hat₁' : ∀ t d,
+          ext (defineInterp I₁ (flattenR C n).next (Concept.globally C))
+            (.name (flattenR C n).atom) t d ↔
+          ext (defineInterp I₁ (flattenR C n).next (Concept.globally C)) C t d := by
+        intro t d
+        rw [ext_agree hagD _ hnameC1 t d, ext_agree hagD C hCb1 t d]
+        exact hat₁ t d
+      refine ⟨defineInterp I₁ (flattenR C n).next (Concept.globally C), ?_, ?_, ?_⟩
+      · exact hag₁.chain hagD hnn1
+      · simp only [flattenR]
+        rw [models_append]
+        refine ⟨?_, ?_⟩
+        · rw [models_agree hagD (flattenR_axs_below C n hCb)]
+          exact hm₁
+        · intro ax hax
+          simp only [List.mem_singleton] at hax
+          subst hax
+          intro t d hat t' ht'
+          exact (hat₁' t' d).mpr ((hdef.1 t d hat) t' ht')
+      · intro t d
+        simp only [flattenR]
+        exact ⟨fun hh => hdef.1 t d hh, fun hh => hdef.2 t d hh⟩
   | @name b =>
       intro n I _
       refine ⟨I, AgreeBelow.rfl I n, ?_, ?_⟩
@@ -828,7 +1265,7 @@ theorem normAxEL_below (ax : Axiom) (n : Nat) (h : ax.namesBelow n) :
       subst hax'
       trivial
 
-theorem normAxEL_nf {ax : Axiom} (hEL : ELAxiom ax) (n : Nat) :
+theorem normAxEL_nf {ax : Axiom} (hEL : PolarityAxiom ax) (n : Nat) :
     ∀ ax' ∈ (normAxEL ax n).1, NFAxiom ax' := by
   cases ax with
   | gci C D =>
@@ -847,7 +1284,7 @@ theorem normAxEL_nf {ax : Axiom} (hEL : ELAxiom ax) (n : Nat) :
       subst hax'
       exact Or.inr ⟨r, s, u, rfl⟩
 
-theorem normAxEL_sound {ax : Axiom} (hEL : ELAxiom ax) (I : TemporalInterp Δ) (n : Nat)
+theorem normAxEL_sound {ax : Axiom} (hEL : PolarityAxiom ax) (I : TemporalInterp Δ) (n : Nat)
     (hm : models I (normAxEL ax n).1) : satisfies I ax := by
   cases ax with
   | gci C D =>
@@ -862,7 +1299,7 @@ theorem normAxEL_sound {ax : Axiom} (hEL : ELAxiom ax) (I : TemporalInterp Δ) (
       simp only [normAxEL] at hm
       exact hm _ (List.mem_singleton.mpr rfl)
 
-theorem normAxEL_complete {ax : Axiom} (hEL : ELAxiom ax) :
+theorem normAxEL_complete {ax : Axiom} (hEL : PolarityAxiom ax) :
     ∀ n (I : TemporalInterp Δ), ax.namesBelow n → satisfies I ax →
       ∃ I' : TemporalInterp Δ,
         AgreeBelow I I' n ∧ models I' (normAxEL ax n).1 := by
@@ -940,7 +1377,7 @@ theorem normTBoxEL_below (T : TBox) : ∀ n, T.namesBelow n →
       · exact Axiom.namesBelow.mono (normAxEL_below ax n hhead ax' hax') (by omega)
       · exact ih (normAxEL ax n).2 hrest ax' hax'
 
-theorem normTBoxEL_nf {T : TBox} (hEL : ELTBox T) :
+theorem normTBoxEL_nf {T : TBox} (hEL : PolarityTBox T) :
     ∀ n, ∀ ax' ∈ (normTBoxEL T n).1, NFAxiom ax' := by
   induction T with
   | nil => intro n ax hax; simp only [normTBoxEL] at hax; exact absurd hax (List.not_mem_nil)
@@ -951,7 +1388,7 @@ theorem normTBoxEL_nf {T : TBox} (hEL : ELTBox T) :
       · exact normAxEL_nf (hEL ax (List.mem_cons_self ..)) n ax' hax'
       · exact ih (fun a ha => hEL a (List.mem_cons.mpr (Or.inr ha))) (normAxEL ax n).2 ax' hax'
 
-theorem normTBoxEL_sound {T : TBox} (hEL : ELTBox T) (I : TemporalInterp Δ) :
+theorem normTBoxEL_sound {T : TBox} (hEL : PolarityTBox T) (I : TemporalInterp Δ) :
     ∀ n, models I (normTBoxEL T n).1 → models I T := by
   induction T with
   | nil => intro n _ ax hax; exact absurd hax (List.not_mem_nil)
@@ -964,7 +1401,7 @@ theorem normTBoxEL_sound {T : TBox} (hEL : ELTBox T) (I : TemporalInterp Δ) :
         exact normAxEL_sound (hEL ax' (List.mem_cons_self ..)) I n hm.1
       · exact ih (fun a ha => hEL a (List.mem_cons.mpr (Or.inr ha))) (normAxEL ax n).2 hm.2 ax' hax'
 
-theorem normTBoxEL_complete {T : TBox} (hEL : ELTBox T) :
+theorem normTBoxEL_complete {T : TBox} (hEL : PolarityTBox T) :
     ∀ n (I : TemporalInterp Δ), T.namesBelow n → models I T →
       ∃ I' : TemporalInterp Δ,
         AgreeBelow I I' n ∧ models I' (normTBoxEL T n).1 := by
@@ -994,14 +1431,17 @@ theorem normTBoxEL_complete {T : TBox} (hEL : ELTBox T) :
       rw [models_agree hag₂ (normAxEL_below ax n hhead)]
       exact hm₁
 
-/-! ## L1 for the EL fragment — the main theorem, sorry-free -/
+/-! ## L1 — the main theorems, sorry-free -/
 
-/-- **Lemma L1, EL instance** (complete, machine-checked).
+/-- **Lemma L1, full polarity fragment** (complete, machine-checked).
 
-    Every EL TBox normalizes to a TBox in the NF shapes, as a conservative
-    extension: equisatisfiable, and every model of the result is a model of the
-    input.  The normalizer is `normTBoxEL` starting from `freshName T`. -/
-theorem l1_el_normal_form (T : TBox) (hEL : ELTBox T) :
+    Every polarity-respecting LTEL TBox — left sides over {⊤, names, ⊓, ∃r, ○, 𝒰}
+    (hence also ◇ = ⊤𝒰·), right sides over {⊤, names, ⊓, ∃r, ○, □} — normalizes
+    to a TBox in the NF shapes, as a conservative extension: equisatisfiable, and
+    every model of the result is a model of the input.  The normalizer is
+    `normTBoxEL` starting from `freshName T`.  The polarity precondition is
+    necessary: right-side ◇/𝒰 have no sound NF (Q3), left-side □ has no NF shape. -/
+theorem l1_ltel_normal_form (T : TBox) (hEL : PolarityTBox T) :
     ∃ T' : TBox,
       (∀ ax ∈ T', (∃ C D, ax = .gci C D ∧ LhsNF C ∧ RhsNF D) ∨
                    ∃ r s u, ax = .ri r s u) ∧
@@ -1019,3 +1459,12 @@ theorem l1_el_normal_form (T : TBox) (hEL : ELTBox T) :
       exact ⟨Δ', I, normTBoxEL_sound hEL I (freshName T) hI⟩
   · intro Δ' I hI
     exact normTBoxEL_sound hEL I (freshName T) hI
+
+/-- **Lemma L1, EL instance** — derived from the polarity theorem. -/
+theorem l1_el_normal_form (T : TBox) (hEL : ELTBox T) :
+    ∃ T' : TBox,
+      (∀ ax ∈ T', (∃ C D, ax = .gci C D ∧ LhsNF C ∧ RhsNF D) ∨
+                   ∃ r s u, ax = .ri r s u) ∧
+      (satisfiable T ↔ satisfiable T') ∧
+      (∀ (Δ' : Type) (I : TemporalInterp Δ'), models I T' → models I T) :=
+  l1_ltel_normal_form T hEL.polarity

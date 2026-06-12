@@ -24,8 +24,11 @@ inductive RhsNF : Concept → Prop where
   | next : RhsNF (.name A) → RhsNF (.next (.name A))
   | glob : RhsNF (.name A) → RhsNF (.globally (.name A))
 
-/-- Concept is in left-hand normal form: names, meets of names, ∃r.A, ○A, A𝒰B. -/
+/-- Concept is in left-hand normal form: ⊤, names, meets of names, ∃r.A, ○A, A𝒰B.
+    ⊤ is admitted as a left-hand atom (a basic concept à la Baader–Brandt–Lutz);
+    it is needed to express left-side ◇ (= ⊤ 𝒰 ·) after normalization. -/
 inductive LhsNF : Concept → Prop where
+  | top   : LhsNF .top
   | name  : LhsNF (.name A)
   | meet  : LhsNF (.name A) → LhsNF (.name B) → LhsNF (.meet (.name A) (.name B))
   | some  : LhsNF (.name A) → LhsNF (.some r (.name A))
@@ -737,55 +740,26 @@ theorem cpx_replace_le (E : Concept) (a : ConceptName) :
         have hC := complexBit_replace_le E a C
         omega
 
-/-! ## L1: Normal form -/
+/-! ## L1: Normal form — proved in `LTEL.ELNormalForm`
 
-/-- **Lemma L1** (Normal form exists).
+The normal-form lemma is **proved** — for the polarity-respecting fragment,
+which is the only fragment where it is true (right-side ◇/𝒰 have no sound NF;
+see Q3) — in `LTEL.ELNormalForm`:
 
-    Any LTEL TBox `T` normalizes to a TBox `T'` in the NF shapes via repeated
-    conservative definition introduction (`definition_introduction_conservative`)
-    plus the temporal unfoldings below.  The guarantee is a **conservative
-    extension**: `T'` is equisatisfiable with `T`, and every model of `T'` is a
-    model of `T` (the reduct direction).
+  * `l1_ltel_normal_form` — full polarity fragment (left sides over
+    {⊤, names, ⊓, ∃r, ○, 𝒰} hence also ◇ = ⊤𝒰·; right sides over
+    {names, ⊓, ∃r, ○, □}), via the executable normalizer `normTBoxEL`, as a
+    conservative extension (equisatisfiable + reduct-sound).  No `sorry`.
+  * `l1_el_normal_form` — the static-EL instance, derived from it.
 
-    The statement was corrected from an earlier `∀ I, models I T ↔ models I T'`,
-    which is **false** once fresh names are introduced (a model of `T` need not
-    interpret the fresh names as their definitions).
-
-    **Proved sorry-free — almost the whole iteration:**
-    * one step is conservative (`normalization_step_conservative`), from the
-      engine (`definition_introduction_conservative`) + replacement
-      (`ext_replace_of_def`);
-    * the steps **compose** — `Conservative` is reflexive and transitive
-      (`Conservative.refl`/`trans`) and each step is `Conservative.step`, so any
-      chain `T ⤳ … ⤳ T'` of steps is itself conservative;
-    * the **fresh-name supply** is solved — `freshName T` is provably unmentioned
-      (`freshName_not_mentions`).
-
-    The **NF-producing step toolkit is complete** (all sorry-free):
-    `Conservative.step` (symmetric, for ∃/○), `directional_rhs`/`directional_lhs`
-    (one-sided, for positive `□` / negative `𝒰`, via monotone substitution), and
-    `split_meet_rhs` (the meet-on-the-right split into NF-EL1 axioms).  Plus the
-    measure `cpx` with monotonicity (`cpx_replace_le`) and the fresh-name supply.
-
-    **The single remaining `sorry` — the recursion driver.**  What is missing is
-    purely the terminating recursion that *selects and applies* these steps: an
-    innermost-flat-complex sub-concept picker, the strict-decrease companion of
-    `cpx_replace_le` (a step on an occurring complex `E` strictly lowers `cpx`),
-    the characterization `cpx = 0 ⇒ NF` (with the polarity precondition below),
-    and the strong induction on `cpx` threaded through `Conservative.trans`.  No
-    foundational lemmas remain — only the driver.
-
-    Also needs the **polarity precondition** — `□` only on the right, `𝒰`/`◇`
-    only on the left — since `A ⊑ ◇B` has no faithful NF form (right-side `◇` is
-    unsound to box; see Q3).  The current statement omits it, so L1 is provable
-    only for the polarity-respecting fragment. -/
-theorem l1_normal_form_exists (T : TBox) :
-    ∃ T' : TBox,
-      (∀ ax ∈ T', (∃ C D, ax = .gci C D ∧ LhsNF C ∧ RhsNF D) ∨
-                   ∃ r s u, ax = .ri r s u) ∧
-      (satisfiable T ↔ satisfiable T') ∧
-      (∀ (Δ : Type) (I : TemporalInterp Δ), models I T' → models I T) :=
-  sorry
+An earlier unconditional statement (`l1_normal_form_exists`, quantifying over
+arbitrary TBoxes) was removed: without the polarity precondition the lemma is
+not provable (e.g. `A ⊑ ◇B` has no faithful NF form), and keeping a
+false-as-stated `sorry` would be a hazard.  The step toolkit in this module
+(`normalization_step_conservative`, the directional steps, `split_meet_rhs`,
+the `cpx` measure) documents the alternative iterate-a-step route; the driver
+actually used in `ELNormalForm` is structural recursion via polarity-aware
+flatteners, which needs no termination measure. -/
 
 /-! ## Semantic fixed-point equations (fully proved) -/
 
