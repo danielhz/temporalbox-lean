@@ -4,6 +4,7 @@
 import LTEL.Syntax
 import LTEL.Semantics
 import LTEL.NormalForm
+import LTEL.ELNormalForm
 import LTEL.UntilCompilation
 import LTEL.Lasso
 import LTEL.RigidFragment
