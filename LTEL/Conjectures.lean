@@ -120,12 +120,43 @@ theorem q3_verdict :
 /-- Q4 status: box-friendly ⊆ tractable holds (T1–T3); converse is OPEN. -/
 theorem q4_partial : True := trivial
 
-/-! ## Q5: Box²EL bump/non-rigid-concept interaction — OPEN -/
+/-! ## Q5: Box²EL bump / non-rigid-concept interaction — RESOLVED (sound)
 
-/-- Q5: Does the temporal lifting of Box²EL preserve soundness given that
-    Box²EL's bump mechanism interacts with non-rigid concept boxes?
-    Status: OPEN. -/
-theorem q5_open : True := trivial
+Q5 asked whether the temporal lifting of Box²EL stays sound given that its
+*bump* mechanism interacts with non-rigid concept boxes.  Reading the Box²EL
+construction (Jackermeier et al., WWW 2024): each atomic concept `C` has a box
+`Box(C)` **and** a bump vector `Bump(C) ∈ ℝⁿ`; roles are dual Head/Tail boxes;
+the existential clauses are scored as `Box(C) ⊕ Bump(D) ⊆ Head(r)` and
+`Box(D) ⊕ Bump(C) ⊆ Tail(r)` (for `C ⊑ ∃r.D`), and `Head(r) − Bump(C) ⊆ Box(D)`
+(for `∃r.C ⊑ D`).  Soundness (their Thm 2) treats each bump as a fixed
+per-concept parameter.
+
+**Verdict: the lifting preserves soundness**, under the natural lifting in
+which bumps and roles are *rigid* (per-concept / per-role structural parameters)
+and only the concept boxes are non-rigid (per time point).  Reasons:
+
+  1. The bump appears **only** in the role/existential loss, never in the
+     concept meet/containment lattice.  That lattice is a genuine `BoxAlgebra`
+     with exact meet (`axisBoxAlgebra`, BoxEmbedding.lean), independent of bumps.
+  2. In our framework the entire relational layer — roles, Head/Tail boxes,
+     bumps — is abstracted by the rigid `TemporalBoxEmb.roleCarrier`.  The
+     non-rigid temporal variation lives only in `conceptBox A t`.
+  3. The temporal axioms decompose (L1/L2) into bump-free cross-time
+     containments (`A ⊑ ○B`, `A ⊑ □B`, `A 𝒰 B ⊑ C`) and per-time-slice static
+     clauses; at each fixed `t` the latter form a static Box²EL instance over
+     `{Box(A,t)}` with the rigid bumps/roles, so Box²EL's static soundness
+     (Thm 2) applies slice-by-slice.  `t1_soundness` already uses only the
+     `BoxAlgebra` interface plus the base method's static ∃-soundness, so it is
+     **bump-agnostic** and transfers to Box²EL (this is exactly
+     `Corollary (Faithfulness transfers)` of the paper).
+
+**Design requirement this surfaces:** bumps must stay **rigid**.  A lifting that
+made `Bump(C)` vary per time point while keeping a single rigid role relation
+would desynchronise the relational layer across time and could break the
+per-slice soundness — the one genuine "bump × non-rigid" hazard, avoided by
+keeping bumps structural.  The machine-checked part is the concept-lattice
+interface (`axisBoxAlgebra`); the slice-wise reduction is the analysis above. -/
+theorem q5_resolved : True := trivial
 
 /-! ## Summary -/
 
