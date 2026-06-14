@@ -9,6 +9,7 @@ import LTEL.UntilCompilation
 import LTEL.Lasso
 import LTEL.RigidFragment
 import LTEL.BoxEmbedding
+import LTEL.BoundedDimension
 import LTEL.Soundness
 import LTEL.Faithfulness
 import LTEL.Tractability

@@ -28,8 +28,16 @@ theorem q1_verdict : True := trivial
 
 /-! ## Q2: Bounded dimension — OPEN -/
 
-/-- Q2: does a fixed dimension n suffice for faithfulness independent of |T|?
-    Requires real analysis (boxes in ℝⁿ); status: OPEN. -/
+/-- **Q2 — REFUTED** (geometric core machine-checked in `LTEL.BoundedDimension`).
+    No fixed box-embedding dimension is faithful: the canonical model of
+    `T_n = {X_i ⊑ Y_j : i ≠ j}` realizes `n` co-singleton concept extensions,
+    and `BoundedDimension.cosingleton_dim_lb` shows realizing `n` co-singletons
+    with axis-parallel boxes needs dimension `≥ n/2`
+    (`BoundedDimension.no_fixed_dimension`).  The exclusions come from
+    faithfulness (entailment-completeness), not from `⊥`.  The
+    existence-phrased Q2 is trivial (total model, dimension 1), as for
+    satisfiability; the EL canonical-model reduction is described in
+    `BoundedDimension` and its full mechanization is deferred. -/
 def q2_statement : Prop := ∃ _n : Nat, True
 
 /-! ## Q3: Right-side ◇ is genuinely unsound — REFUTED -/
