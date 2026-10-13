@@ -18,7 +18,7 @@ not an enumeration of lasso positions:
      IJCAI 2005), and the box construction is one application of the base method.
 
 This supersedes the earlier `2^|CN|` lasso bound, which is **exponential** in
-`|T|` and therefore does *not* establish PTIME (cf. @writer's note of
+`|T|` and therefore does *not* establish PTIME (cf. the paper-side note of
 2026-06-09).  The complexity statement itself (PTIME) is inherited from EL⁺ and
 recorded as commentary — complexity classes are not formalised here — but the
 *reduction* it rests on is now machine-checked below.
