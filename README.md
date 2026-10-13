@@ -27,7 +27,7 @@ A green `lake build` with no `sorry` and no errors is what "proved" means here. 
 
 ## Conventions
 
-The default branch is `master`. Do not bump the toolchain without agreement among the authors; commit `lake-manifest.json` whenever it changes. Development tooling of individual contributors (editor or assistant configuration) is not tracked in this repository.
+The default branch is `main`. Do not bump the toolchain without agreement among the authors; commit `lake-manifest.json` whenever it changes. Development tooling of individual contributors (editor or assistant configuration) is not tracked in this repository.
 
 ## License
 
